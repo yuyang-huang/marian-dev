@@ -842,8 +842,8 @@ class Scaler {
         next_increment += tau_step;
       }
 
-      if (current_batch_words < max_batch_words) {
-        current_batch_words += batch_lr_step;
+      if (current_batch_words > min_batch_words) {
+        current_batch_words = std::max(current_batch_words - batch_lr_step, min_batch_words);
       }
     }
 

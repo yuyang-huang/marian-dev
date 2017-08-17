@@ -83,4 +83,18 @@ TEST_CASE("LR Scaler behaves as expected", "[LR Scaler]")  {
             scaler.newBatch();
         }
     }
+
+    /*SECTION("LR scaling") {
+        Scaler scaler(1700.0, 18000.0, 10000, 4, 1);
+        float batch_flex_lr = scaler.getNewBatchLR();
+        float prev_batch_flex_lr = batch_flex_lr;
+        for (int i = 0; i<10005; i++) {
+            scaler.newBatch();
+            batch_flex_lr = scaler.getNewBatchLR();
+            if (batch_flex_lr != prev_batch_flex_lr) {
+                std::cout << "at iteration: " << i << " bflr is " << batch_flex_lr << std::endl;
+                prev_batch_flex_lr = batch_flex_lr;
+            }
+        }
+    }*/
 }
