@@ -782,7 +782,8 @@ class Scaler {
 
     size_t max_tau;
     size_t tau_regain_batches;
-    size_t tau_step;
+    double tau_step;
+    double next_increment;
 
     size_t current_batch;
 
@@ -791,7 +792,8 @@ class Scaler {
 
     void init() {
       //How many batches need to pass for us to increment tau
-      tau_step = std::min(tau_regain_batches / max_tau, (size_t)1);
+      tau_step = std::max((double)tau_regain_batches / (double)(max_tau - 1), 1.0);
+      next_increment = tau_step;
       if (tau_regain_batches == 1) { //Only do that if necessary
         current_tau = max_tau;
       } else {
@@ -818,7 +820,7 @@ class Scaler {
       num_batch_regain(num_batch_regain_),
       max_tau(max_tau_),
       tau_regain_batches(tau_regain_batches_),
-      current_batch(1)
+      current_batch(0)
     {
       init();
     }
@@ -829,14 +831,15 @@ class Scaler {
       num_batch_regain(options->get<size_t>("batch-words-regain")),
       max_tau(options->get<size_t>("tau")),
       tau_regain_batches(options->get<size_t>("tau-max-regain")),
-      current_batch(1) {
+      current_batch(0) {
         init();
       }
 
     void newBatch() {
       current_batch++;
-      if (current_batch % tau_step == 0 && current_tau < max_tau) {
+      if (current_batch >= next_increment && current_tau < max_tau) {
         current_tau++;
+        next_increment += tau_step;
       }
 
       if (current_batch_words < max_batch_words) {
