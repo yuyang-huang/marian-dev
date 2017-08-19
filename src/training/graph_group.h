@@ -16,6 +16,7 @@
 #include "training/sparse_tensor.h"
 #include "training/training.h"
 #include "training/validator.h"
+#include "training/scaler.h"
 
 namespace marian {
 
@@ -24,14 +25,12 @@ protected:
   Ptr<Config> options_;
   Ptr<OptimizerBase> opt_;
   bool scale_lr; // Whether to scale the learning rate
-  float average_batch_words;
 
 public:
   GraphGroup(Ptr<Config> options)
       : options_(options),
       opt_(Optimizer(options)),
-      scale_lr(options->get<bool>("batch-flexible-lr")),
-      average_batch_words(options->get<float>("batch-normal-words")) {}
+      scale_lr(options->get<bool>("batch-flexible-lr")) {}
 
   virtual ~GraphGroup() {}
 
@@ -66,6 +65,7 @@ private:
   Ptr<ExpressionGraph> mvAvgGraph_;
   bool mvAvg_{false};
   float mvDecay_{0.9999};
+  Scaler scaler;
 
   void updateMovingAverage(Tensor mvAvgParams, Tensor params, size_t batches) {
     float decay = min(mvDecay_, (float)(batches + 1) / (float)(batches + 10));
@@ -85,7 +85,10 @@ private:
     //std::cout << "Batch size: " << batch->size() << " batch_words " << batch_words << std::endl;
 
     if (scale_lr) {
+      float average_batch_words = scaler.getNewBatchLR(); //Get the average batch words for this iteration
       opt_->update(graph_, batch_words/average_batch_words);
+      scaler.newBatch(); //Move onto the next batch
+
     } else {
       opt_->update(graph_);
     }
@@ -131,7 +134,8 @@ public:
   SingletonGraph(Ptr<Config> options, Args... args)
       : GraphGroup(options),
         mvAvg_{options_->get<bool>("moving-average")},
-        mvDecay_{(float)options_->get<double>("moving-decay")} {
+        mvDecay_{(float)options_->get<double>("moving-decay")},
+        scaler(options) {
     size_t device = options_->get<std::vector<size_t>>("devices")[0];
 
     graph_ = New<ExpressionGraph>();
@@ -293,7 +297,7 @@ private:
     }
   }
 
-  void pushGradients(Tensor newGrads, size_t batch_words) {
+  void pushGradients(Tensor newGrads, float batch_words_scaling) {
     // add instead of copy?
     std::vector<std::thread> threads;
     int pos = 0;
@@ -315,7 +319,7 @@ private:
             }
 
             if (scale_lr) {
-              shardOpt_[idx]->update(params_[latestVersion][idx], grads_[idx], batch_words/average_batch_words);
+              shardOpt_[idx]->update(params_[latestVersion][idx], grads_[idx], batch_words_scaling);
             } else {
               shardOpt_[idx]->update(params_[latestVersion][idx], grads_[idx]);
             }
@@ -396,10 +400,10 @@ private:
     }
   }
 
-  void sparsePush(SparseTensor newGrads, size_t batch_words) {
+  void sparsePush(SparseTensor newGrads, float batch_words_scaling) {
     if(graphs_.size() < 2) {
       if (scale_lr) {
-        opt_->update(graphs_[0], batch_words/average_batch_words);
+        opt_->update(graphs_[0], batch_words_scaling);
       } else {
         opt_->update(graphs_[0]);
       }
@@ -431,7 +435,7 @@ private:
               int latestVersion = ++globalVersionNumber[idx] % history_size_;
               params_[latestVersion][idx]->copyFrom(params_[pastVersion][idx]);
               if (scale_lr) {
-                shardOpt_[idx]->update(params_[latestVersion][idx], grads_[idx], batch_words/average_batch_words);
+                shardOpt_[idx]->update(params_[latestVersion][idx], grads_[idx], batch_words_scaling);
               } else {
                 shardOpt_[idx]->update(params_[latestVersion][idx], grads_[idx]);
               }
@@ -572,7 +576,15 @@ private:
       // gradient drop purpose
       thread_local GradientDrop dropper;
 
+      // In case we want to do warmup for batch_flexible_lr and tau
+      thread_local Scaler scaler(options_);
+      thread_local size_t tau_local;
+      thread_local float average_batch_words;
+
       thread_local size_t my_id = 0;
+
+      tau_local = scaler.getNewTau();
+      average_batch_words = scaler.getNewBatchLR();
 
       if(!graph) {
         std::lock_guard<std::mutex> lock(sync_);
@@ -592,7 +604,7 @@ private:
 
       auto costNode = builder->build(graph, batch);
 
-      if(t % tau_ == 0) {
+      if(t % tau_local == 0) {
 
         if(drop_rate_ && t > 0)
           sparseFetchParams(graph->params()->vals(), my_id);
@@ -610,13 +622,15 @@ private:
       size_t batch_words = batch->words();
 
       Tensor gradients;
-      if(tau_ > 1) {
-        if(t == 0) {
+
+      if(tau_ > 1 && t == 0) {
           accAlloc = New<TensorAllocator>(graph->getDevice());
           accAlloc->reserveExact(graph->params()->grads()->memory()->size());
           accAlloc->allocate(accGradients, graph->params()->grads()->shape());
           accGradients->set(0);
-        }
+      }
+
+      if(tau_local > 1) {
 
         Element(_1 += _2, accGradients, graph->params()->grads());
         gradients = accGradients;
@@ -629,15 +643,15 @@ private:
 
       t++;
 
-      if(t % tau_ == 0) {
+      if(t % tau_local == 0) {
 
         cudaStreamSynchronize(0);
         if(drop_rate_) {
           dropper->dropGraph(
               gradients, localSparseGrads_[my_id], drop_rate_);
-          sparsePush(localSparseGrads_[my_id], num_seen_words);
+          sparsePush(localSparseGrads_[my_id], num_seen_words/average_batch_words);
         } else {
-          pushGradients(gradients, num_seen_words);
+          pushGradients(gradients, num_seen_words/average_batch_words);
         }
         num_seen_words = 0; //Reset the counter of seen words after gradient update
 
@@ -667,7 +681,7 @@ private:
             fetchParams(graph->params()->vals(), paramsAvg_);
           scheduler_->validate(graph);
         }
-
+        scaler.newBatch();
         /*if(movingAvg_) {
           size_t injectFreq = options_->get<size_t>("moving-inject-freq");
           if(injectFreq && scheduler_->numberOfBatches() % injectFreq == 0) {
@@ -767,94 +781,6 @@ public:
   Ptr<data::BatchStats> collectStats() {
     return builders_[0]->collectStats(graphs_[0]);
   }
-};
-
-//This class takes care of per thread values of tau_ and batch-flexible-lr
-//so that we can do warmup
-class Scaler {
-  private:
-    Ptr<Config> options_;
-
-    float min_batch_words;
-    float max_batch_words;
-    size_t num_batch_regain;
-    float batch_lr_step;
-
-    size_t max_tau;
-    size_t tau_regain_batches;
-    double tau_step;
-    double next_increment;
-
-    size_t current_batch;
-
-    size_t current_tau;
-    float current_batch_words;
-
-    void init() {
-      //How many batches need to pass for us to increment tau
-      tau_step = std::max((double)tau_regain_batches / (double)(max_tau - 1), 1.0);
-      next_increment = tau_step;
-      if (tau_regain_batches == 1) { //Only do that if necessary
-        current_tau = max_tau;
-      } else {
-        current_tau = 1;
-      }
-
-      //How many batches need to pass for us to decrement LR
-      if (max_batch_words != min_batch_words && num_batch_regain != 1) { 
-        batch_lr_step = num_batch_regain / (max_batch_words - min_batch_words);
-        batch_lr_step = 1/batch_lr_step;
-      } else {
-        batch_lr_step = 0;
-        max_batch_words = min_batch_words;
-      }
-      current_batch_words = max_batch_words;
-    }
-
-
-  public:
-    Scaler(float min_batch_words_, float max_batch_words_, size_t num_batch_regain_, //For testing
-      size_t max_tau_, size_t tau_regain_batches_) :
-      min_batch_words(min_batch_words_),
-      max_batch_words(max_batch_words_),
-      num_batch_regain(num_batch_regain_),
-      max_tau(max_tau_),
-      tau_regain_batches(tau_regain_batches_),
-      current_batch(0)
-    {
-      init();
-    }
-    Scaler(Ptr<Config> options) : 
-      options_(options),
-      min_batch_words(options->get<float>("batch-normal-words")),
-      max_batch_words(options->get<float>("batch-max-words")),
-      num_batch_regain(options->get<size_t>("batch-words-regain")),
-      max_tau(options->get<size_t>("tau")),
-      tau_regain_batches(options->get<size_t>("tau-max-regain")),
-      current_batch(0) {
-        init();
-      }
-
-    void newBatch() {
-      current_batch++;
-      if (current_batch >= next_increment && current_tau < max_tau) {
-        current_tau++;
-        next_increment += tau_step;
-      }
-
-      if (current_batch_words > min_batch_words) {
-        current_batch_words = std::max(current_batch_words - batch_lr_step, min_batch_words);
-      }
-    }
-
-    size_t getNewTau() {
-      return current_tau;
-    }
-
-    float getNewBatchLR() {
-      return current_batch_words;
-    }
-
 };
 
 }

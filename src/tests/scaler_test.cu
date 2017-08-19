@@ -1,6 +1,6 @@
 #define CATCH_CONFIG_MAIN
 #include "catch.hpp"
-#include "training/graph_group.h"
+#include "training/scaler.h"
 
 using namespace marian;
 
