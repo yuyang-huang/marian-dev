@@ -642,7 +642,7 @@ private:
         }
         num_seen_words = 0; //Reset the counter of seen words after gradient update
 
-        if(tau_ > 1) {
+        if(tau_local > 1) {
           gradients->set(0);
         }
 
