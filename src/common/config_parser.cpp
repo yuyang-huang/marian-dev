@@ -259,6 +259,8 @@ void ConfigParser::addOptionsModel(po::options_description& desc) {
      "Model-specific special vocabulary ids")
     ("tied-embeddings", po::value<bool>()->zero_tokens()->default_value(false),
      "Tie target embeddings and output embeddings in output layer")
+    ("tied-embeddings-all", po::value<bool>()->zero_tokens()->default_value(false),
+     "Tie all embedding layers and output layer")
     ;
 
   if(mode_ == ConfigMode::training) {
@@ -467,6 +469,9 @@ void ConfigParser::addOptionsTranslate(po::options_description& desc) {
     ("weights", po::value<std::vector<float>>()
       ->multitoken(),
       "Scorer weights")
+    // TODO: the options should be available only in server
+    ("port,p", po::value<size_t>()->default_value(8080),
+      "Port number for web socket server")
   ;
   // clang-format on
   desc.add(translate);
@@ -593,6 +598,7 @@ void ConfigParser::parseOptions(
 
   SET_OPTION("skip", bool);
   SET_OPTION("tied-embeddings", bool);
+  SET_OPTION("tied-embeddings-all", bool);
   SET_OPTION("layer-normalization", bool);
 
   SET_OPTION("best-deep", bool);
@@ -664,6 +670,7 @@ void ConfigParser::parseOptions(
     SET_OPTION("allow-unk", bool);
     SET_OPTION_NONDEFAULT("weights", std::vector<float>);
     // SET_OPTION_NONDEFAULT("lexical-table", std::string);
+    SET_OPTION("port", size_t);
   }
 
   /** valid **/
