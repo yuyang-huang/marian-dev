@@ -631,7 +631,7 @@ private:
       }
 
       t++;
-
+      scaler.newBatch();
       if(t % tau_local == 0) {
         if(drop_rate_) {
           dropper->dropGraph(
@@ -668,7 +668,6 @@ private:
             fetchParams(graph->params()->vals(), paramsAvg_);
           scheduler_->validate(graph);
         }
-        scaler.newBatch();
         /*if(movingAvg_) {
           size_t injectFreq = options_->get<size_t>("moving-inject-freq");
           if(injectFreq && scheduler_->numberOfBatches() % injectFreq == 0) {
