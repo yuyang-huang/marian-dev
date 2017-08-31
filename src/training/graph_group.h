@@ -569,6 +569,9 @@ private:
       thread_local Scaler scaler(options_);
       thread_local size_t tau_local;
       thread_local float average_batch_words;
+      
+      //Thread local optimizer:
+      thread_local Ptr<OptimizerBase> localOpt = Optimizer("sgd", options_->get<double>("learn-rate"), 0);
 
       thread_local size_t my_id = 0;
 
@@ -606,7 +609,14 @@ private:
       graph->forward();
       float cost = costNode->scalar();
       graph->backward();
-
+      //Update the local optimizer:
+      if (tau_local > 0) {
+        localOpt->update(graph);
+        //Update our local section of the shardedGrad basically reverse fetchParams for local guy
+      //  params_[globalVersionNumber[my_id] % history_size_][my_id]->subtensor(shardSize_*my_id,
+      //               params_[globalVersionNumber[my_id] % history_size_][my_id]->size())
+      //               ->copyFrom(graph->params()->vals());
+      }
       //Get batch stats
       size_t batch_words = batch->words();
 

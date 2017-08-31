@@ -106,4 +106,5 @@ Ptr<OptimizerBase> Optimizer(float eta, Args&&... args) {
 }
 
 Ptr<OptimizerBase> Optimizer(Ptr<Config> options);
+Ptr<OptimizerBase> Optimizer(std::string opt, double lrate, double clipNorm = 0);
 }

@@ -80,4 +80,21 @@ Ptr<OptimizerBase> Optimizer(Ptr<Config> options) {
     UTIL_THROW2("Unknown optimizer: " << opt);
   }
 }
+
+Ptr<OptimizerBase> Optimizer(std::string opt, double lrate, double clipNorm) {
+  Ptr<ClipperBase> clipper = nullptr;
+  if(clipNorm > 0)
+    clipper = Clipper<Norm>(clipNorm);
+
+  if(opt == "sgd") {
+    return Optimizer<Sgd>(lrate, keywords::clip = clipper);
+  } else if(opt == "adagrad") {
+    return Optimizer<Adagrad>(lrate, keywords::clip = clipper);
+  } else if(opt == "adam") {
+    return Optimizer<Adam>(lrate, keywords::clip = clipper);
+  } else {
+    UTIL_THROW2("Unknown optimizer: " << opt);
+  }
+}
+
 }
