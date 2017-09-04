@@ -296,6 +296,12 @@ private:
       t.join();
     }
   }
+  
+  void reversefetchParamsLocal(Tensor newParams, const std::vector<Tensor>& params, int idx) {
+    int pos = shardSize_*idx;
+    std::vector<std::thread> threads;
+    params[idx]->copyFrom(newParams->subtensor(pos, params[idx]->size()));
+  }
 
   void pushGradients(Tensor newGrads, float batch_words_scaling) {
     // add instead of copy?
@@ -571,7 +577,7 @@ private:
       thread_local float average_batch_words;
       
       //Thread local optimizer:
-      thread_local Ptr<OptimizerBase> localOpt = Optimizer("sgd", options_->get<double>("learn-rate"), 0);
+      thread_local Ptr<OptimizerBase> localOpt = Optimizer("adam", options_->get<double>("learn-rate"), 0);
 
       thread_local size_t my_id = 0;
 
@@ -609,16 +615,15 @@ private:
       graph->forward();
       float cost = costNode->scalar();
       graph->backward();
+      size_t batch_words = batch->words();
       //Update the local optimizer:
-      if (tau_local > 0) {
-        localOpt->update(graph);
-        //Update our local section of the shardedGrad basically reverse fetchParams for local guy
-      //  params_[globalVersionNumber[my_id] % history_size_][my_id]->subtensor(shardSize_*my_id,
-      //               params_[globalVersionNumber[my_id] % history_size_][my_id]->size())
-      //               ->copyFrom(graph->params()->vals());
+      if (tau_local > 0 && t < 10000) {
+        localOpt->update(graph, batch_words/average_batch_words);
+        reversefetchParamsLocal(graph->params()->vals(),
+                      params_[globalVersionNumber[my_id] % history_size_], my_id);
+
       }
       //Get batch stats
-      size_t batch_words = batch->words();
 
       Tensor gradients;
 
