@@ -60,6 +60,17 @@ void Adam::updateImpl(Tensor params, Tensor grads) {
  cudaStreamSynchronize(0);
 }
 
+void Adam::updateState(Ptr<OptimizerBase> localOpt, size_t shardSize_, int my_id) {
+  if(!mtAlloc_ || !vtAlloc_) {
+    return; //We don't update the optimizer unless it's initialized
+  }
+  Tensor remoteMT = localOpt->getMT_();
+  Tensor remoteVT = localOpt->getVT_();
+  int pos = shardSize_*my_id;
+  mt_->copyFrom(remoteMT->subtensor(pos, mt_->size()));
+  vt_->copyFrom(remoteVT->subtensor(pos, vt_->size()));
+}
+
 Ptr<OptimizerBase> Optimizer(Ptr<Config> options) {
   Ptr<ClipperBase> clipper = nullptr;
   float clipNorm = options->get<double>("clip-norm");

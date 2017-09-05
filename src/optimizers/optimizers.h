@@ -42,6 +42,18 @@ public:
     eta_ = state.eta;
   }
 
+  virtual Tensor getMT_() {
+    return nullptr;
+  }
+
+  virtual Tensor getVT_() {
+    return nullptr;
+  }
+
+  virtual void updateState(Ptr<OptimizerBase> localOpt, size_t shardSize_, int my_id) {
+    return;
+  }
+
 protected:
   virtual void updateImpl(Tensor params, Tensor grads) = 0;
 
@@ -87,6 +99,14 @@ public:
         t_(0) {}
 
   void updateImpl(Tensor params, Tensor grads);
+  void updateState(Ptr<OptimizerBase> localOpt, size_t shardSize_, int my_id);
+  Tensor getMT_() {
+    return mt_;
+  }
+
+  Tensor getVT_() {
+    return vt_;
+  }
 
 private:
   float beta1_;

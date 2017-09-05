@@ -299,7 +299,6 @@ private:
   
   void reversefetchParamsLocal(Tensor newParams, const std::vector<Tensor>& params, int idx) {
     int pos = shardSize_*idx;
-    std::vector<std::thread> threads;
     params[idx]->copyFrom(newParams->subtensor(pos, params[idx]->size()));
   }
 
@@ -617,10 +616,11 @@ private:
       graph->backward();
       size_t batch_words = batch->words();
       //Update the local optimizer:
-      if (tau_local > 0 && t < 10000) {
+      if (tau_local > 0) {
         localOpt->update(graph, batch_words/average_batch_words);
         reversefetchParamsLocal(graph->params()->vals(),
                       params_[globalVersionNumber[my_id] % history_size_], my_id);
+        shardOpt_[my_id]->updateState(localOpt, shardSize_, my_id);
 
       }
       //Get batch stats
