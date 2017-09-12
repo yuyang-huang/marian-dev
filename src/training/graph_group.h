@@ -569,6 +569,7 @@ private:
       thread_local Scaler scaler(options_);
       thread_local size_t tau_local;
       thread_local float average_batch_words;
+      thread_local bool once = true;
 
       thread_local size_t my_id = 0;
 
@@ -631,6 +632,13 @@ private:
       }
 
       t++;
+      if (once && t > 4000) {
+        for (int i = 0; i<shardOpt_.size(); i++) {
+          shardOpt_[i]->setB1(0.99f);
+          shardOpt_[i]->setB2(0.999f);
+        }
+        once = false;
+      }
       scaler.newBatch();
       if(t % tau_local == 0) {
         if(drop_rate_) {
