@@ -42,11 +42,11 @@ public:
     eta_ = state.eta;
   }
 
-  virtual void setB1(double newValue) {
+  virtual void setB1(float newValue) {
     return;
   }
 
-  virtual void setB2(double newValue) {
+  virtual void setB2(float newValue) {
     return;
   }
 
