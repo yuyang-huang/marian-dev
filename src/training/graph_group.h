@@ -582,6 +582,10 @@ private:
 
       tau_local = scaler.getNewTau();
       average_batch_words = scaler.getNewBatchLR();
+      if (t==0) {
+	localOpt->setB1(0.95f);
+	localOpt->setB1(0.995f);
+      }
 
       if(!graph) {
         std::lock_guard<std::mutex> lock(sync_);
@@ -616,11 +620,11 @@ private:
       graph->backward();
       size_t batch_words = batch->words();
       //Update the local optimizer:
-      if (tau_local > 0) {
+      if (tau_local > 0 && t < 30000) {
         localOpt->update(graph, batch_words/average_batch_words);
         reversefetchParamsLocal(graph->params()->vals(),
                       params_[globalVersionNumber[my_id] % history_size_], my_id);
-        shardOpt_[my_id]->updateState(localOpt, shardSize_, my_id);
+        //shardOpt_[my_id]->updateState(localOpt, shardSize_, my_id);
 
       }
       //Get batch stats

@@ -54,6 +54,14 @@ public:
     return;
   }
 
+  virtual void setB1(float newValue) {
+    return;
+  }
+
+  virtual void setB2(float newValue) {
+    return;
+  }
+
 protected:
   virtual void updateImpl(Tensor params, Tensor grads) = 0;
 
@@ -93,8 +101,8 @@ public:
   template <typename... Args>
   Adam(float eta, Args... args)
       : OptimizerBase(eta, args...),
-        beta1_(Get(keywords::beta1, 0.9, args...)),
-        beta2_(Get(keywords::beta2, 0.999, args...)),
+        beta1_(Get(keywords::beta1, 0.91, args...)),
+        beta2_(Get(keywords::beta2, 0.998, args...)),
         eps_(Get(keywords::eps, 1e-8, args...)),
         t_(0) {}
 
@@ -106,6 +114,14 @@ public:
 
   Tensor getVT_() {
     return vt_;
+  }
+  
+  void setB1(float newValue) {
+    beta1_ = newValue;
+  }
+
+  void setB2(float newValue) {
+    beta2_ = newValue;
   }
 
 private:
