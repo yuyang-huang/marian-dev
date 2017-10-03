@@ -583,10 +583,14 @@ private:
       thread_local size_t my_id = 0;
 
       tau_local = scaler.getNewTau();
-      average_batch_words = scaler.getNewBatchLR();
+      if (t > 3000) {
+	average_batch_words = scaler.getNewBatchLR();
+      } else {
+	average_batch_words = 1920;
+      }
       if (t==0) {
-	localOpt->setB1(0.95f);
-	localOpt->setB1(0.995f);
+	localOpt->setB1(0.96f);
+	localOpt->setB2(0.993f);
       }
 
       if(!graph) {
@@ -622,13 +626,28 @@ private:
       graph->backward();
       size_t batch_words = batch->words();
       //Update the local optimizer:
-      if (tau_local > 0 && t < 30000) {
+      if (tau_local > 0 && t < 3000) {
         localOpt->update(graph, batch_words/average_batch_words);
         reversefetchParamsLocal(graph->params()->vals(),
                       params_[globalVersionNumber[my_id] % history_size_], my_id);
         //shardOpt_[my_id]->updateState(localOpt, shardSize_, my_id);
 
       }
+      
+      if (t % 5000 == 0) {
+        scaler = Scaler(options_);
+      }
+/*
+      if (t == 8000) {
+        shardOpt_[my_id]->setB1(0.93);
+        shardOpt_[my_id]->setB2(0.997);
+      }
+
+      if (t == 8000) {
+        shardOpt_[my_id]->setB1(0.94);
+        shardOpt_[my_id]->setB2(0.996);
+      }
+      */
       //Get batch stats
 
       Tensor gradients;
@@ -675,7 +694,9 @@ private:
           boost::upgrade_to_unique_lock<boost::shared_mutex> uniqueLock(lock);
           scheduler_->update(cost, batch);
         }
-
+        if(scheduler_->stalled() > 0) {
+           scaler = Scaler(options_); //Reset LR at a stall
+        }
         if(scheduler_->saving()) {
           boost::upgrade_to_unique_lock<boost::shared_mutex> uniqueLock(lock);
           if(movingAvg_)
