@@ -339,6 +339,12 @@ void ConfigParser::addOptionsTraining(po::options_description& desc) {
 
     ("optimizer,o", po::value<std::string>()->default_value("adam"),
      "Optimization algorithm (possible values: sgd, adagrad, adam")
+    ("beta1", po::value<double>()->default_value(0.9),
+     "Beta1 value for Adam")
+    ("beta2", po::value<double>()->default_value(0.999),
+     "Beta2 value for Adam")
+    ("eps", po::value<double>()->default_value(1e-8),
+     "Epsilon value for Adam")
     ("learn-rate,l", po::value<double>()->default_value(0.0001),
      "Learning rate")
     ("lr-decay", po::value<double>()->default_value(0.0),
@@ -642,6 +648,9 @@ void ConfigParser::parseOptions(
     SET_OPTION("dynamic-batching", bool);
 
     SET_OPTION("lr-decay", double);
+    SET_OPTION("beta1", double);
+    SET_OPTION("beta2", double);
+    SET_OPTION("eps", double);
     SET_OPTION("lr-decay-strategy", std::string);
     SET_OPTION("lr-decay-start", std::vector<size_t>);
     SET_OPTION("lr-decay-freq", size_t);

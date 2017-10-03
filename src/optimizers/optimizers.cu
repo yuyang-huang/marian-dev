@@ -81,15 +81,25 @@ Ptr<OptimizerBase> Optimizer(Ptr<Config> options) {
 
   std::string opt = options->get<std::string>("optimizer");
 
+  float beta1 = options->get<double>("beta1");
+  float beta2 = options->get<double>("beta2");
+  float eps = options->get<double>("eps");
+
+  Ptr<OptimizerBase> ret;
   if(opt == "sgd") {
-    return Optimizer<Sgd>(lrate, keywords::clip = clipper);
+    ret = Optimizer<Sgd>(lrate, keywords::clip = clipper);
   } else if(opt == "adagrad") {
-    return Optimizer<Adagrad>(lrate, keywords::clip = clipper);
+    ret = Optimizer<Adagrad>(lrate, keywords::clip = clipper);
   } else if(opt == "adam") {
-    return Optimizer<Adam>(lrate, keywords::clip = clipper);
+    ret = Optimizer<Adam>(lrate, keywords::clip = clipper);
   } else {
     UTIL_THROW2("Unknown optimizer: " << opt);
   }
+
+  ret->setB1(beta1);
+  ret->setB2(beta2);
+  ret->setEPS(eps);
+  return ret;
 }
 
 Ptr<OptimizerBase> Optimizer(std::string opt, double lrate, double clipNorm) {

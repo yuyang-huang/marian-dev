@@ -62,6 +62,10 @@ public:
     return;
   }
 
+  virtual void setEPS(float newValue) {
+    return;
+  }
+
 protected:
   virtual void updateImpl(Tensor params, Tensor grads) = 0;
 
@@ -122,6 +126,10 @@ public:
 
   void setB2(float newValue) {
     beta2_ = newValue;
+  }
+
+  void setEPS(float newValue) {
+    eps_ = newValue;
   }
 
 private:
