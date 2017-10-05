@@ -585,8 +585,8 @@ private:
       tau_local = scaler.getNewTau();
       average_batch_words = scaler.getNewBatchLR();
       if (t==0) {
-	localOpt->setB1(0.95f);
-	localOpt->setB1(0.995f);
+	localOpt->setB1(0.93f);
+	localOpt->setB1(0.997f);
       }
 
       if(!graph) {
@@ -622,7 +622,7 @@ private:
       graph->backward();
       size_t batch_words = batch->words();
       //Update the local optimizer:
-      if (tau_local > 0 && t < 30000) {
+      if (tau_local > 0 && t < 3000) {
         localOpt->update(graph, batch_words/average_batch_words);
         reversefetchParamsLocal(graph->params()->vals(),
                       params_[globalVersionNumber[my_id] % history_size_], my_id);
@@ -630,6 +630,10 @@ private:
 
       }
       //Get batch stats
+      if (t == 4000) {
+        shardOpt_[my_id]->setB1(0.92);
+        shardOpt_[my_id]->setB2(0.998);
+      }
 
       Tensor gradients;
 
