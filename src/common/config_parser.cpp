@@ -429,6 +429,9 @@ void ConfigParser::addOptionsTraining(cli::CLIWrapper& cli) {
      "Decrease learning rate at arg / sqrt(no. batches) starting at arg  (append 't' or 'e' for sqrt(target labels or epochs)). "
      "Add second argument to define the starting point (default: same as first value)",
      {"0"});
+  cli.add<std::vector<std::string/*SchedulerPeriod*/>>("--lr-decay-cosine",
+     "Decrease learning rate following the (1 + cosine(pi * step / max_step)) curve, staring at arg",
+     {"0"});
 
   cli.add<std::string/*SchedulerPeriod*/>("--lr-warmup",
      "Increase learning rate linearly for  arg  first batches (append 't' for  arg  first target labels)",
@@ -477,7 +480,7 @@ void ConfigParser::addOptionsTraining(cli::CLIWrapper& cli) {
      "Fix target embeddings. Affects all decoders");
 
   // mixed precision training
-  cli.add<bool>("--fp16", 
+  cli.add<bool>("--fp16",
       "Shortcut for mixed precision training with float16 and cost-scaling, "
       "corresponds to: --precision float16 float32 float32 --cost-scaling 7 2000 2 0.05 10 1");
   cli.add<std::vector<std::string>>("--precision",
@@ -610,8 +613,8 @@ void ConfigParser::addOptionsTranslation(cli::CLIWrapper& cli) {
   cli.add<std::string>("--gemm-type",
       "Select GEMM options: auto, mklfp32, intrinint16, fp16packed, int8packed",
       "auto");
-  
-  cli.add<bool>("--fp16", 
+
+  cli.add<bool>("--fp16",
       "Shortcut for mixed precision inference with float16, corresponds to: --precision float16");
   cli.add<std::vector<std::string>>("--precision",
       "Mixed precision for inference, set parameter type in expression graph",
@@ -667,12 +670,12 @@ void ConfigParser::addOptionsScoring(cli::CLIWrapper& cli) {
 
   cli.add<bool>("--optimize",
       "Optimize speed aggressively sacrificing memory or precision");
-  cli.add<bool>("--fp16", 
+  cli.add<bool>("--fp16",
       "Shortcut for mixed precision inference with float16, corresponds to: --precision float16");
   cli.add<std::vector<std::string>>("--precision",
       "Mixed precision for inference, set parameter type in expression graph",
       {"float32"});
-  
+
   cli.switchGroup(previous_group);
   // clang-format on
 }
@@ -725,7 +728,7 @@ void ConfigParser::addSuboptionsBatching(cli::CLIWrapper& cli) {
     cli.add<size_t>("--mini-batch-fit-step",
       "Step size for mini-batch-fit statistics",
       10);
-    cli.add<bool>("--gradient-checkpointing", 
+    cli.add<bool>("--gradient-checkpointing",
       "Enable gradient-checkpointing to minimize memory usage");
   }
 
