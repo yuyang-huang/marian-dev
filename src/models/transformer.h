@@ -536,6 +536,10 @@ public:
       layer = LayerFFN(prefix_ + "_l" + std::to_string(i) + "_ffn", layer);
     }
 
+    // additional layer normalization at the top for pre-norm transformers
+    if(opsPost.back() != 'n')
+      layer = layerNorm(layer, prefix_ + "_top");
+
     // restore organization of batch and time steps. This is currently required
     // to make RNN-based decoders and beam search work with this. We are looking
     // into making this more natural.
@@ -769,6 +773,10 @@ public:
 
       query = LayerFFN(prefix_ + "_l" + layerNo + "_ffn", query); // [-4: beam depth=1, -3: batch size, -2: max length, -1: vector dim]
     }
+
+    // additional layer normalization at the top for pre-norm transformers
+    if(opsPost.back() != 'n')
+      query = layerNorm(query, prefix_ + "_top");
 
     auto decoderContext = transposeTimeBatch(query); // [-4: beam depth=1, -3: max length, -2: batch size, -1: vector dim]
 
