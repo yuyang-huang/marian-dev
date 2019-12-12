@@ -245,7 +245,7 @@ public:
         continue;
 
       size_t stalledPrev = validator->stalled();
-      float value = validator->validate(graphs);
+      float value = validator->validate(graphs, state_);
       if(validator->stalled() > 0) {
         LOG_VALID(info,
                   "Ep. {} : Up. {} : {} : {} : stalled {} times (last best: {})",
@@ -401,9 +401,8 @@ public:
 
   void save(const std::string& name) {
     // Save config options
-    YAML::Node yaml = options_->getYaml();
     std::ofstream fout(name + ".yml");
-    fout << yaml;
+    fout << options_->asYamlString();
     // Save training progress
     state_->save(name + ".progress.yml");
   }

@@ -1,18 +1,33 @@
 #include "catch.hpp"
 #include "graph/expression_graph.h"
 #include "graph/expression_operators.h"
+
+#ifdef CUDA_FOUND
+#include "tensors/gpu/backend.h"
+#endif
+
 #include <cmath>
 
 using namespace marian;
 
 template <typename T>
 void tests(DeviceType device, Type floatType = Type::float32) {
+
+// Checking for FP16 support and skipping if not supported.
+#ifdef CUDA_FOUND
+  if(device == DeviceType::gpu && floatType == Type::float16) {
+    auto gpuBackend = New<gpu::Backend>(DeviceId({0, device}), /*seed=*/1234);
+    auto cudaCompute = gpuBackend->getCudaComputeCapability();
+    if(cudaCompute.major < 6) return;
+  }
+#endif
+
   auto floatApprox = [](T x, T y) -> bool { return x == Approx(y).epsilon(0.01); };
   auto floatEqual  = [](T x, T y) -> bool { return x == y; };
 
   Config::seed = 1234;
   auto graph = New<ExpressionGraph>();
-  graph->setParameterType(floatType);
+  graph->setDefaultElementType(floatType);
   graph->setDevice({0, device});
   graph->reserveWorkspaceMB(16);
 
@@ -71,8 +86,8 @@ void tests(DeviceType device, Type floatType = Type::float32) {
     CHECK(compare(rplus,  [](float a, float b) {return a + b;}, true));
     CHECK(compare(rminus, [](float a, float b) {return a - b;}, true));
     CHECK(compare(rmult,  [](float a, float b) {return a * b;}, true));
-    CHECK(compare(rdiv,   [](float a, float b) {return a / b;}, /*exactMatch=*/false));
-    CHECK(compare(rlae,   [](float a, float b) {return logf(expf(a) + expf(b));}, /*exactMatch=*/false));
+    CHECK(compare(rdiv,   [](float a, float b) {return a / b;}, false));
+    CHECK(compare(rlae,   [](float a, float b) {return logf(expf(a) + expf(b));}, false));
     CHECK(compare(rmax,   [](float a, float b) {return std::max(a, b);}, true));
     CHECK(compare(rmin,   [](float a, float b) {return std::min(a, b);}, true));
     CHECK(compare(rlt,    [](float a, float b) {return a <  b;}, true));
@@ -762,9 +777,11 @@ TEST_CASE("Expression graph supports basic math operations (gpu)", "[operator]")
   tests<float>(DeviceType::gpu);
 }
 
+#if COMPILE_FP16
 TEST_CASE("Expression graph supports basic math operations (gpu fp16)", "[operator]") {
   tests<float16>(DeviceType::gpu, Type::float16);
 }
+#endif
 #endif
 
 #ifdef BLAS_FOUND
@@ -772,3 +789,59 @@ TEST_CASE("Expression graph supports basic math operations (cpu)", "[operator]")
   tests<float>(DeviceType::cpu);
 }
 #endif
+
+#ifdef BLAS_FOUND
+#ifdef CUDA_FOUND
+
+TEST_CASE("Compare aggregate operator", "[graph]") {
+  auto floatApprox = [](float x, float y) -> bool { return x == Approx(y).epsilon(0.01); };
+  
+  Config::seed = 1234;
+
+  std::vector<float> initc;
+  std::vector<float> inita;
+
+  {
+    auto graph = New<ExpressionGraph>();
+    graph->setDevice({0, DeviceType::cpu});
+    graph->reserveWorkspaceMB(40);
+
+    auto chl = graph->param("1x10x512x2048", {1, 10, 512, 2048}, inits::normal());
+    auto adj = graph->param("1x1x512x2048",  {1,  1, 512, 2048}, inits::normal());
+    graph->forward();
+
+    chl->val()->get(initc);
+    adj->val()->get(inita);
+  }
+
+  SECTION("initializing with zero (cpu)") {
+    std::vector<float> values1;
+    std::vector<float> values2;
+    
+    auto graph1 = New<ExpressionGraph>();
+    graph1->setDevice({0, DeviceType::cpu});
+    graph1->reserveWorkspaceMB(40);
+
+    auto graph2 = New<ExpressionGraph>();
+    graph2->setDevice({0, DeviceType::gpu});
+    graph2->reserveWorkspaceMB(40);
+  
+    auto chl1 = graph1->param("1x10x512x2048", {1, 10, 512, 2048}, inits::fromVector(initc));
+    auto adj1 = graph1->param("1x1x512x2048",  {1,  1, 512, 2048}, inits::fromVector(inita));
+    auto prod1 = scalar_product(chl1, adj1, -1);
+    graph1->forward();
+
+    auto chl2 = graph2->param("1x10x512x2048", {1, 10, 512, 2048}, inits::fromVector(initc));
+    auto adj2 = graph2->param("1x1x512x2048",  {1,  1, 512, 2048}, inits::fromVector(inita));
+    auto prod2 = scalar_product(chl2, adj2, -1);
+    graph2->forward();
+
+    prod1->val()->get(values1);
+    prod2->val()->get(values2);
+
+    CHECK( std::equal(values1.begin(), values1.end(), values2.begin(), floatApprox) );
+  }
+}
+
+  #endif
+  #endif

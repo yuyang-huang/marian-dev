@@ -8,6 +8,8 @@ include_directories(3rd_party/fbgemm/include)
 include_directories(${CMAKE_BINARY_DIR}/local/include)
 
 add_library(marian STATIC
+  common/aliases.cpp
+  common/fastopt.cpp
   common/version.cpp
   common/utils.cpp
   common/logging.cpp
@@ -15,13 +17,13 @@ add_library(marian STATIC
   common/cli_wrapper.cpp
   common/config.cpp
   common/config_parser.cpp
-  common/aliases.cpp
   common/config_validator.cpp
   common/options.cpp
   common/binary.cpp
   common/io.cpp
   common/filesystem.cpp
   common/file_stream.cpp
+  common/types.cpp
   
   data/alignment.cpp
   data/vocab.cpp
@@ -37,6 +39,8 @@ add_library(marian STATIC
   3rd_party/cnpy/cnpy.cpp
   3rd_party/ExceptionWithCallStack.cpp
 
+  3rd_party/phf/phf.cc
+
   tensors/backend.cpp
   tensors/rand.cpp
   tensors/tensor.cpp
@@ -47,7 +51,7 @@ add_library(marian STATIC
   tensors/cpu/sharp/int_gemm.cpp
   tensors/cpu/sharp/avx_gemm.cpp
   tensors/cpu/sharp/sse_gemm.cpp
-  tensors/cpu/sharp/packed_gemm.cpp
+  tensors/cpu/fbgemm/packed_gemm.cpp
 
   graph/expression_graph.cpp
   graph/expression_operators.cpp
