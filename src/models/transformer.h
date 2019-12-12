@@ -249,7 +249,7 @@ public:
 
     // take softmax along src sequence axis (-1)
     auto weights = softmax(z); // [-4: beam depth * batch size, -3: num heads, -2: max tgt length, -1: max src length]
-    
+
     if(saveAttentionWeights)
       collectOneHead(weights, dimBeam);
 
@@ -338,21 +338,10 @@ public:
                       const Expr& mask,   // [-4: batch size, -3: num heads broadcast=1, -2: max length broadcast=1, -1: max length]
                       bool cache = false,
                       bool saveAttentionWeights = false) {
-    int dimModel = input->shape()[-1];
-
-    float dropProb = inference_ ? 0 : opt<float>("transformer-dropout");
-    auto opsPre = opt<std::string>("transformer-preprocess");
-    auto output = preProcess(prefix + "_Wo", opsPre, input, dropProb);
-
-    auto heads = opt<int>("transformer-heads");
-
     // multi-head self-attention over previous input
-    output = MultiHead(prefix, dimModel, heads, output, keys, values, mask, cache, saveAttentionWeights);
-    
-    auto opsPost = opt<std::string>("transformer-postprocess");
-    output = postProcess(prefix + "_Wo", opsPost, output, input, dropProb);
-
-    return output;
+    int dimModel = input->shape()[-1];
+    auto heads = opt<int>("transformer-heads");
+    return MultiHead(prefix, dimModel, heads, input, keys, values, mask, cache, saveAttentionWeights);
   }
 
   Expr DecoderLayerSelfAttention(rnn::State& decoderLayerState,
@@ -531,7 +520,7 @@ public:
     auto embeddingLayer = getEmbeddingLayer(opt<bool>("ulr", false));
     std::tie(batchEmbeddings, batchMask) = embeddingLayer->apply((*batch)[batchIndex_]);
     batchEmbeddings = addSpecialEmbeddings(batchEmbeddings, /*start=*/0, batch);
-    
+
     // reorganize batch and timestep
     batchEmbeddings = atleast_nd(batchEmbeddings, 4);
     batchMask = atleast_nd(batchMask, 4);
@@ -547,16 +536,25 @@ public:
     layerMask = transposedLogMask(layerMask); // [-4: batch size, -3: 1, -2: vector dim=1, -1: max length]
 
     // apply encoder layers
+    auto opsPre = opt<std::string>("transformer-preprocess");
+    auto opsPost = opt<std::string>("transformer-postprocess");
     auto encDepth = opt<int>("enc-depth");
     for(int i = 1; i <= encDepth; ++i) {
+      auto input = layer;
+      layer = preProcess(prefix_ + "_l" + std::to_string(i) + "_self_Wo", opsPre, layer, dropProb);
       layer = LayerAttention(prefix_ + "_l" + std::to_string(i) + "_self",
                              layer, // query
                              layer, // keys
                              layer, // values
                              layerMask);
+      layer = postProcess(prefix_ + "_l" + std::to_string(i) + "_self_Wo", opsPost, layer, input, dropProb);
 
       layer = LayerFFN(prefix_ + "_l" + std::to_string(i) + "_ffn", layer);
     }
+
+    // additional layer normalization at the top for pre-norm transformers
+    if(opsPost.back() != 'n')
+      layer = layerNorm(layer, prefix_ + "_top");
 
     // restore organization of batch and time steps. This is currently required
     // to make RNN-based decoders and beam search work with this. We are looking
@@ -734,6 +732,8 @@ public:
              tiedLayers.size(),
              decDepth);
 
+    auto opsPre = opt<std::string>("transformer-preprocess");
+    auto opsPost = opt<std::string>("transformer-postprocess");
     for(int i = 0; i < decDepth; ++i) {
       std::string layerNo = std::to_string(i + 1);
       if (!tiedLayers.empty())
@@ -746,8 +746,12 @@ public:
       // self-attention
       std::string layerType = opt<std::string>("transformer-decoder-autoreg", "self-attention");
       rnn::State decoderState;
-      if(layerType == "self-attention")
+      if(layerType == "self-attention") {
+        auto input = query;
+        query = preProcess(prefix_ + "_l" + layerNo + "_self_Wo", opsPre, query, dropProb);
         query = DecoderLayerSelfAttention(decoderState, prevDecoderState, prefix_ + "_l" + layerNo + "_self", query, selfMask, startPos);
+        query = postProcess(prefix_ + "_l" + layerNo + "_self_Wo", opsPost, query, input, dropProb);
+      }
       else if(layerType == "average-attention")
         query = DecoderLayerAAN(decoderState, prevDecoderState, prefix_ + "_l" + layerNo + "_aan", query, selfMask, startPos);
       else if(layerType == "rnn")
@@ -782,6 +786,8 @@ public:
             saveAttentionWeights = i == attLayer;
           }
 
+          auto input = query;
+          query = preProcess(prefix + "_Wo", opsPre, query, dropProb);
           query = LayerAttention(prefix,
                                  query,
                                  encoderContexts[j], // keys
@@ -789,6 +795,7 @@ public:
                                  encoderMasks[j],
                                  /*cache=*/true,
                                  saveAttentionWeights);
+          query = postProcess(prefix + "_Wo", opsPost, query, input, dropProb);
         }
       }
 
@@ -798,6 +805,10 @@ public:
       query = LayerFFN(prefix_ + "_l" + layerNo + "_ffn", query); // [-4: beam depth=1, -3: batch size, -2: max length, -1: vector dim]
     }
 
+    // additional layer normalization at the top for pre-norm transformers
+    if(opsPost.back() != 'n')
+      query = layerNorm(query, prefix_ + "_top");
+
     auto decoderContext = transposeTimeBatch(query); // [-4: beam depth=1, -3: max length, -2: batch size, -1: vector dim]
 
     //************************************************************************//
@@ -806,7 +817,7 @@ public:
     if(shortlist_)
       output_->setShortlist(shortlist_);
     auto logits = output_->applyAsLogits(decoderContext); // [-4: beam depth=1, -3: max length, -2: batch size, -1: vocab or shortlist dim]
-    
+
     // return unormalized(!) probabilities
     Ptr<DecoderState> nextState;
     if (opt<std::string>("transformer-decoder-autoreg", "self-attention") == "rnn") {

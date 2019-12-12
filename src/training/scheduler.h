@@ -18,26 +18,42 @@ private:
   std::vector<Ptr<ValidatorBase>> validators_;
 
   bool first_{true};
+  const double pi = std::acos(-1);
 
   timer::Timer timer_;
   timer::Timer heartBeatTimer_;
 
   // determine scheduled LR decay factor (--lr-decay-inv-sqrt option)
   float getScheduledLRDecayFactor(const TrainingState& state) const {
-    auto args = options_->get<std::vector<std::string>>("lr-decay-inv-sqrt");
-    ABORT_IF(args.empty() || args.size() > 2, "--lr-decay-inv-sqrt argument must be one or two numbers with units");
-    auto decayGoogle = SchedulingParameter::parse(args[0]);
-    size_t progress = state.getProgressIn(decayGoogle.unit);
-    size_t start = decayGoogle.n;
+    auto argsGoogle = options_->get<std::vector<std::string>>("lr-decay-inv-sqrt");
+    ABORT_IF(argsGoogle.empty() || argsGoogle.size() > 2, "--lr-decay-inv-sqrt argument must be one or two numbers with units");
+    auto decayGoogle = SchedulingParameter::parse(argsGoogle[0]);
+
+    auto argsCosine = options_->get<std::vector<std::string>>("lr-decay-cosine");
+    auto decayCosine = SchedulingParameter::parse(argsCosine[0]);
+
+    ABORT_IF(decayGoogle && decayCosine, "--lr-decay-inv-sqrt and --lr-decay-cosine cannot be specified at the same time");
+    auto args = decayGoogle ? argsGoogle : argsCosine;
+    auto decay = decayGoogle ? decayGoogle : decayCosine;
+
+    size_t progress = state.getProgressIn(decay.unit);
+    size_t start = decay.n;
+    size_t total = options_->get<size_t>("after-batches");
+    if (decay.unit == SchedulingUnit::epochs)
+      total = options_->get<size_t>("after-epochs");
+
     if (args.size() > 1) {
       auto decayStart = SchedulingParameter::parse(args[1]);
-      ABORT_IF(decayStart && decayStart.unit != decayGoogle.unit,
+      ABORT_IF(decayStart && decayStart.unit != decay.unit,
                "both --lr-decay-inv-sqrt arguments must have the same unit");
       start = decayStart.n;
     }
-    if (decayGoogle && progress > start) {
-      progress = progress - start + decayGoogle.n; // shift so that we get 1 at progress==start
-      return (float)(std::sqrt((double)decayGoogle.n / (double)progress));
+    if (decay && progress > start) {
+      progress = progress - start; // shift so that we get 1 at progress==start
+      total = total - start;
+      if (decayGoogle)
+        return (float)std::sqrt((double)decay.n / (double)(progress + decay.n));
+      return (float)(0.5 * (1. + std::cos(pi * (double)progress / (double)total)));
     }
     else
       return 1.f;

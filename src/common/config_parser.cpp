@@ -434,6 +434,9 @@ void ConfigParser::addOptionsTraining(cli::CLIWrapper& cli) {
      "Decrease learning rate at arg / sqrt(no. batches) starting at arg  (append 't' or 'e' for sqrt(target labels or epochs)). "
      "Add second argument to define the starting point (default: same as first value)",
      {"0"});
+  cli.add<std::vector<std::string/*SchedulerPeriod*/>>("--lr-decay-cosine",
+     "Decrease learning rate following the (1 + cosine(pi * step / max_step)) curve, staring at arg",
+     {"0"});
 
   cli.add<std::string/*SchedulerPeriod*/>("--lr-warmup",
      "Increase learning rate linearly for  arg  first batches (append 't' for  arg  first target labels)",
