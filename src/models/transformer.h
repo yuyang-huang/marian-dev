@@ -34,16 +34,16 @@ protected:
   std::vector<Expr> alignments_; // [max tgt len or 1][beam depth, max src length, batch size, 1]
 
   // @TODO: make this go away
-  template <typename T> 
-  T opt(const char* const key) const { Ptr<Options> options = options_; return options->get<T>(key); }  
+  template <typename T>
+  T opt(const char* const key) const { Ptr<Options> options = options_; return options->get<T>(key); }
 
-  template <typename T> 
-  T opt(const std::string& key) const { return opt<T>(key.c_str()); }  
+  template <typename T>
+  T opt(const std::string& key) const { return opt<T>(key.c_str()); }
 
-  template <typename T> 
+  template <typename T>
   T opt(const char* const key, const T& def) const { Ptr<Options> options = options_; return options->get<T>(key, def);  }
 
-  template <typename T> 
+  template <typename T>
   T opt(const std::string& key, const T& def) const { opt<T>(key.c_str(), def); }
 
 public:
@@ -142,29 +142,6 @@ public:
     return reshape(output, {dimBeam, dimBatch, dimSteps, dimModel});
   }
 
-  // like affine() but with built-in parameters, activation, and dropout
-  static inline
-  Expr dense(Expr x, std::string prefix, std::string suffix, int outDim, const std::function<Expr(Expr)>& actFn = nullptr, float dropProb = 0.0f)
-  {
-    auto graph = x->graph();
-
-    auto W = graph->param(prefix + "_W" + suffix, { x->shape()[-1], outDim }, inits::glorotUniform());
-    auto b = graph->param(prefix + "_b" + suffix, { 1,              outDim }, inits::zeros());
-
-    x = affine(x, W, b);
-    if (actFn)
-      x = actFn(x);
-    x = dropout(x, dropProb);
-    return x;
-  }
-
-  Expr layerNorm(Expr x, std::string prefix, std::string suffix = std::string()) const {
-    int dimModel = x->shape()[-1];
-    auto scale = graph_->param(prefix + "_ln_scale" + suffix, { 1, dimModel }, inits::ones());
-    auto bias  = graph_->param(prefix + "_ln_bias"  + suffix, { 1, dimModel }, inits::zeros());
-    return marian::layerNorm(x, scale, bias, 1e-6f);
-  }
-
   Expr preProcess(std::string prefix, std::string ops, Expr input, float dropProb = 0.0f) const {
     auto output = input;
     for(auto op : ops) {
@@ -192,7 +169,7 @@ public:
       // highway connection
       else if(op == 'h') {
         int dimModel = input->shape()[-1];
-        auto t = dense(prevInput, prefix, /*suffix=*/"h", dimModel);
+        auto t = denseInline(prevInput, prefix, /*suffix=*/"h", dimModel);
         output = highway(output, prevInput, t);
       }
       // layer normalization
@@ -297,8 +274,8 @@ public:
     }
 
     Expr vh;
-    if (cache 
-        && cache_.count(prefix + "_values") > 0 
+    if (cache
+        && cache_.count(prefix + "_values") > 0
         && cache_[prefix + "_values"]->shape().elements() == values->shape().elements()) {
       vh = cache_[prefix + "_values"];
     } else {
@@ -391,8 +368,8 @@ public:
 
     // the stack of FF layers
     for(int i = 1; i < depthFfn; ++i)
-      output = dense(output, prefix, /*suffix=*/std::to_string(i), dimFfn, actFn, ffnDropProb);
-    output = dense(output, prefix, /*suffix=*/std::to_string(depthFfn), dimModel);
+      output = denseInline(output, prefix, /*suffix=*/std::to_string(i), dimFfn, actFn, ffnDropProb);
+    output = denseInline(output, prefix, /*suffix=*/std::to_string(depthFfn), dimModel);
 
     auto opsPost = opt<std::string>("transformer-postprocess");
     output
@@ -419,14 +396,14 @@ public:
 
     // the stack of AAN layers
     for(int i = 1; i < depthAan; ++i)
-      y = dense(y, prefix, /*suffix=*/std::to_string(i), dimAan, actFn, aanDropProb);
+      y = denseInline(y, prefix, /*suffix=*/std::to_string(i), dimAan, actFn, aanDropProb);
     if(y->shape()[-1] != dimModel) // bring it back to the desired dimension if needed
-      y = dense(y, prefix, std::to_string(depthAan), dimModel);
+      y = denseInline(y, prefix, std::to_string(depthAan), dimModel);
 
     bool noGate = opt<bool>("transformer-aan-nogate");
     if(!noGate) {
-      auto gi = dense(x, prefix, /*suffix=*/"i", dimModel, (ActivationFunction*)sigmoid);
-      auto gf = dense(y, prefix, /*suffix=*/"f", dimModel, (ActivationFunction*)sigmoid);
+      auto gi = denseInline(x, prefix, /*suffix=*/"i", dimModel, (ActivationFunction*)sigmoid);
+      auto gf = denseInline(y, prefix, /*suffix=*/"f", dimModel, (ActivationFunction*)sigmoid);
       y = gi * x + gf * y;
     }
 
@@ -471,7 +448,7 @@ public:
                        int /*startPos*/) const {
     float dropoutRnn = inference_ ? 0.f : opt<float>("dropout-rnn");
 
-    if(!perLayerRnn[prefix]) // lazily created and cache RNNs in the docoder to avoid costly recreation @TODO: turn this into class members
+    if(!perLayerRnn[prefix]) // lazily create and cache RNNs in the decoder to avoid costly recreation @TODO: turn this into class members
       perLayerRnn[prefix] = rnn::rnn(
           "type", opt<std::string>("dec-cell"),
           "prefix", prefix,
@@ -522,20 +499,22 @@ public:
     batchEmbeddings = addSpecialEmbeddings(batchEmbeddings, /*start=*/0, batch);
 
     // reorganize batch and timestep
-    batchEmbeddings = atleast_nd(batchEmbeddings, 4);
-    batchMask = atleast_nd(batchMask, 4);
-    auto layer = transposeTimeBatch(batchEmbeddings); // [-4: beam depth=1, -3: batch size, -2: max length, -1: vector dim]
-    auto layerMask
-      = reshape(transposeTimeBatch(batchMask), {1, dimBatch, 1, dimSrcWords}); // [-4: beam depth=1, -3: batch size, -2: vector dim=1, -1: max length]
+    batchEmbeddings = atleast_nd(batchEmbeddings, 4); // [beam depth=1, max length, batch size, vector dim]
+    batchMask       = atleast_nd(batchMask, 4);       // [beam depth=1, max length, batch size, vector dim=1]
+
+    auto layer     = transposeTimeBatch(batchEmbeddings); // [beam depth=1, batch size, max length, vector dim]
+    auto layerMask = transposeTimeBatch(batchMask);       // [beam depth=1, batch size, max length, vector dim=1]
 
     auto opsEmb = opt<std::string>("transformer-postprocess-emb");
-
     float dropProb = inference_ ? 0 : opt<float>("transformer-dropout");
     layer = preProcess(prefix_ + "_emb", opsEmb, layer, dropProb);
 
-    layerMask = transposedLogMask(layerMask); // [-4: batch size, -3: 1, -2: vector dim=1, -1: max length]
+    // LayerAttention expects mask in a different layout
+    layerMask = reshape(layerMask, {1, dimBatch, 1, dimSrcWords}); // [1,          batch size,            1,                      max length]
+    layerMask = transposedLogMask(layerMask);                      // [batch size, num heads broadcast=1, max length broadcast=1, max length]
 
     // apply encoder layers
+    // This is the Transformer Encoder stack.
     auto opsPre = opt<std::string>("transformer-preprocess");
     auto opsPost = opt<std::string>("transformer-postprocess");
     auto encDepth = opt<int>("enc-depth");
@@ -546,10 +525,10 @@ public:
                              layer, // query
                              layer, // keys
                              layer, // values
-                             layerMask);
+                             layerMask); // [batch size, num heads broadcast=1, max length broadcast=1, max length]
       layer = postProcess(prefix_ + "_l" + std::to_string(i) + "_self_Wo", opsPost, layer, input, dropProb);
-
       layer = LayerFFN(prefix_ + "_l" + std::to_string(i) + "_ffn", layer);
+      checkpoint(layer); // sets a manually specified checkpoint if gradient checkpointing is enabled, does nothing otherwise.
     }
 
     // additional layer normalization at the top for pre-norm transformers
@@ -580,14 +559,14 @@ public:
                                    int beamSize) const override {
 
     // @TODO: code duplication with DecoderState only because of isBatchMajor=true, should rather be a contructor argument of DecoderState?
-    
+
     std::vector<Ptr<EncoderState>> newEncStates;
-    for(auto& es : encStates_) 
-      // If the size of the batch dimension of the encoder state context changed, subselect the correct batch entries    
+    for(auto& es : encStates_)
+      // If the size of the batch dimension of the encoder state context changed, subselect the correct batch entries
       newEncStates.push_back(es->getContext()->shape()[-2] == batchIndices.size() ? es : es->select(batchIndices));
 
     // Create hypothesis-selected state based on current state and hyp indices
-    auto selectedState = New<TransformerState>(states_.select(hypIndices, beamSize, /*isBatchMajor=*/true), logProbs_, newEncStates, batch_); 
+    auto selectedState = New<TransformerState>(states_.select(hypIndices, beamSize, /*isBatchMajor=*/true), logProbs_, newEncStates, batch_);
 
     // Set the same target token position as the current state
     // @TODO: This is the same as in base function.
@@ -696,29 +675,33 @@ public:
 
     std::vector<Expr> encoderContexts;
     std::vector<Expr> encoderMasks;
-
     for(auto encoderState : state->getEncoderStates()) {
-      auto encoderContext = encoderState->getContext();
-      auto encoderMask = encoderState->getMask();
+      auto encoderContext = encoderState->getContext(); // encoder output
+      auto encoderMask = encoderState->getMask(); // note: may differ from Encoder self-attention mask in that additional positions are banned for cross-attention
+      encoderMask = atleast_nd(encoderMask, 4);
 
-      encoderContext = transposeTimeBatch(encoderContext); // [-4: beam depth=1, -3: batch size, -2: max length, -1: vector dim]
+      encoderContext = transposeTimeBatch(encoderContext); // [beam depth=1, batch size, max length, vector dim]
+      encoderMask    = transposeTimeBatch(encoderMask);    // [beam depth=1, max length, batch size, vector dim=1]
+
       int dimSrcWords = encoderContext->shape()[-2];
 
       // This would happen if something goes wrong during batch pruning.
       ABORT_IF(encoderContext->shape()[-3] != dimBatch,
-               "Context and query batch dimension do not match {} != {}", 
-               encoderContext->shape()[-3], 
+               "Context and query batch dimension do not match {} != {}",
+               encoderContext->shape()[-3],
                dimBatch);
 
-      encoderMask = atleast_nd(encoderMask, 4);
-      encoderMask = reshape(transposeTimeBatch(encoderMask),
-                            {1, dimBatch, 1, dimSrcWords});
-      encoderMask = transposedLogMask(encoderMask);
+      // LayerAttention expects mask in a different layout
+      encoderMask = reshape(encoderMask, { 1, dimBatch, 1, dimSrcWords }); // [1,          batch size,            1,                      max length]
+      encoderMask = transposedLogMask(encoderMask);                        // [batch size, num heads broadcast=1, max length broadcast=1, max length]
       if(dimBeam > 1)
         encoderMask = repeat(encoderMask, dimBeam, /*axis=*/ -4);
 
       encoderContexts.push_back(encoderContext);
       encoderMasks.push_back(encoderMask);
+
+      checkpoint(encoderContext);
+      checkpoint(encoderMask);
     }
 
     rnn::States prevDecoderStates = state->getStates();
@@ -760,6 +743,8 @@ public:
         ABORT("Unknown auto-regressive layer type in transformer decoder {}",
               layerType);
 
+      checkpoint(query);
+
       // source-target attention
       // Iterate over multiple encoders and simply stack the attention blocks
       if(encoderContexts.size() > 0) {
@@ -799,10 +784,14 @@ public:
         }
       }
 
+      checkpoint(query);
+
       // remember decoder state
       decoderStates.push_back(decoderState);
 
       query = LayerFFN(prefix_ + "_l" + layerNo + "_ffn", query); // [-4: beam depth=1, -3: batch size, -2: max length, -1: vector dim]
+
+      checkpoint(query);
     }
 
     // additional layer normalization at the top for pre-norm transformers
@@ -842,6 +831,10 @@ public:
       output_->clear();
     cache_.clear();
     alignments_.clear();
+    perLayerRnn_.clear(); // this needs to be cleared between batches.
+    // @TODO: figure out how to detect stale nodes i.e. nodes that are referenced,
+    // but where underlying memory has been deallocated by dropping all tensors
+    // from a TensorAllocator object. This can happen during ExpressionGraph::clear()
   }
 };
 
