@@ -1,4 +1,5 @@
 #include "common/authors.h"
+#include "common/build_info.h"
 #include "common/cli_helper.h"
 #include "common/config.h"
 #include "common/config_parser.h"
@@ -111,6 +112,9 @@ void ConfigParser::addOptionsGeneral(cli::CLIWrapper& cli) {
     "Print list of authors and exit");
   cli.add<bool>("--cite",
     "Print citation and exit");
+  cli.add<std::string>("--build-info",
+    "Print CMake build options and exit. Set to 'all' to print advanced options")
+    ->implicit_val("basic");
   cli.add<std::vector<std::string>>("--config,-c",
     "Configuration file(s). If multiple, later overrides earlier");
   cli.add<size_t>("--workspace,-w",
@@ -507,7 +511,7 @@ void ConfigParser::addOptionsTraining(cli::CLIWrapper& cli) {
      true);
 
   // add ULR settings
-  addSuboptionsULR(cli); 
+  addSuboptionsULR(cli);
 
   cli.add<std::vector<std::string>>("--task",
      "Use predefined set of options. Possible values: transformer, transformer-big");
@@ -528,6 +532,8 @@ void ConfigParser::addOptionsValidation(cli::CLIWrapper& cli) {
       "Metric to use during validation: cross-entropy, ce-mean-words, perplexity, valid-script, "
       "translation, bleu, bleu-detok. Multiple metrics can be specified",
       {"cross-entropy"});
+  cli.add<bool>("--valid-reset-stalled",
+     "Reset all stalled validation metrics when the training is restarted");
   cli.add<size_t>("--early-stopping",
      "Stop if the first validation metric does not improve for  arg  consecutive validation steps",
      10);
@@ -556,7 +562,8 @@ void ConfigParser::addOptionsValidation(cli::CLIWrapper& cli) {
       "Size of mini-batch used during validation",
       32);
   cli.add<size_t>("--valid-max-length",
-      "Maximum length of a sentence in a validating sentence pair",
+      "Maximum length of a sentence in a validating sentence pair. "
+      "Sentences longer than valid-max-length are cropped to valid-max-length",
       1000);
 
   // options for validation script
@@ -772,12 +779,6 @@ void ConfigParser::addSuboptionsBatching(cli::CLIWrapper& cli) {
         {"0"});
     cli.add<bool>("--mini-batch-track-lr",
         "Dynamically track mini-batch size inverse to actual learning rate (not considering lr-warmup)");
-    cli.add<size_t>("--mini-batch-overstuff",
-        "[experimental] Stuff this much more data into a minibatch, but scale down the LR and progress counter",
-        1);
-    cli.add<size_t>("--mini-batch-understuff",
-        "[experimental] Break each batch into this many updates",
-        1);
   }
   // clang-format on
 }
@@ -838,6 +839,15 @@ Ptr<Options> ConfigParser::parseOptions(int argc, char** argv, bool doValidate){
 
   if(get<bool>("cite")) {
     std::cerr << citation() << std::endl;
+    exit(0);
+  }
+
+  auto buildInfo = get<std::string>("build-info");
+  if(!buildInfo.empty() && buildInfo != "false") {
+    if(buildInfo == "all")
+      std::cerr << cmakeBuildOptionsAdvanced() << std::endl;
+    else
+      std::cerr << cmakeBuildOptions() << std::endl;
     exit(0);
   }
 
