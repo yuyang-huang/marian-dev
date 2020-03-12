@@ -151,6 +151,10 @@ void ConfigParser::addOptionsServer(cli::CLIWrapper& cli) {
   cli.add<size_t>("--port,-p",
       "Port number for web socket server",
       8080);
+  cli.add<std::string>("--tagging-model",
+      "Path to pre-trained BERT tagging model. Supported file extensions: .npz, .bin");
+  cli.add<std::vector<std::string>>("--tagging-vocabs",
+      "Paths to BERT tagging vocabs");
   cli.switchGroup(previous_group);
   // clang-format on
 }

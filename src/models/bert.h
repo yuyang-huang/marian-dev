@@ -3,6 +3,11 @@
 #include "data/corpus_base.h"
 #include "models/encoder_classifier.h"
 #include "models/transformer.h"   // @BUGBUG: transformer.h is large and was meant to be compiled separately
+#include "models/model_factory.h"
+#include "models/model_task.h"
+#include "translator/output_collector.h"
+#include "data/types.h"
+#include "data/text_input.h"
 #include "data/rng_engine.h"
 
 namespace marian {
@@ -404,6 +409,145 @@ public:
   }
 
   virtual void clear() override {}
+};
+
+/**
+ * This is a service that use BERT for sequence tagging.
+ */
+class TaggingService : public ModelServiceTask {
+private:
+  Ptr<Options> options_;
+  std::vector<Ptr<ExpressionGraph>> graphs_;
+  std::vector<Ptr<models::IModel>> models_;
+
+  std::vector<Ptr<Vocab>> srcVocabs_;
+  Ptr<Vocab> trgVocab_;
+
+  size_t numDevices_;
+
+public:
+  virtual ~TaggingService() {}
+
+  TaggingService(Ptr<Options> options)
+    : options_(New<Options>(options->clone())) {
+    if(!options->hasAndNotEmpty("tagging-model")) {
+      LOG(info, "BERT tagger not provided.");
+      return;
+    }
+
+    // load model options
+    auto model = options_->get<std::string>("tagging-model");
+    LOG(info, "Load BERT tagger from {}", model);
+
+    if(!options_->get<bool>("ignore-model-config")) {
+      YAML::Node modelYaml;
+      io::getYamlFromModel(modelYaml, "special:model.yml", model);
+      options_->merge(modelYaml, true);
+    }
+    options_->set("inference", true);
+    options_->set("shuffle", "none");
+
+    // initialize vocabs
+    auto vocabPaths = options_->get<std::vector<std::string>>("tagging-vocabs");
+    std::vector<int> maxVocabs = options_->get<std::vector<int>>("dim-vocabs");
+
+    Ptr<Vocab> vocab = New<Vocab>(options_, 0);
+    vocab->load(vocabPaths[0], maxVocabs[0]);
+    srcVocabs_.emplace_back(vocab);
+
+    trgVocab_ = New<Vocab>(options_, 1);
+    trgVocab_->load(vocabPaths[1], maxVocabs[1]);
+
+    // get device IDs
+    auto devices = Config::getDevices(options_);
+    numDevices_ = devices.size();
+
+    // initialize the tagger
+    for(auto device : devices) {
+      auto graph = New<ExpressionGraph>(true);
+
+      auto precison = options_->get<std::vector<std::string>>("precision", {"float32"});
+      graph->setDefaultElementType(typeFromString(precison[0])); // only use first type, used for parameter type in graph
+      graph->setDevice(device);
+      graph->getBackend()->setClip(options_->get<float>("clip-gemm"));
+      if (device.type == DeviceType::cpu) {
+        graph->getBackend()->setOptimized(options_->get<bool>("optimize"));
+      }
+      graph->reserveWorkspaceMB(options_->get<size_t>("workspace"));
+      graphs_.push_back(graph);
+
+      auto enccls = models::createModelFromOptions(options_, models::usage::raw);
+      enccls->load(graph, model);
+      models_.push_back(enccls);
+    }
+  }
+
+  std::string run(const std::string& input) override {
+    const auto srcEosId = srcVocabs_.front()->getEosId();
+    auto corpus_ = New<data::TextInput>(std::vector<std::string>({input}), srcVocabs_, options_);
+    data::BatchGenerator<data::TextInput> batchGenerator(corpus_, options_);
+
+    auto collector = New<StringCollector>();
+    size_t batchId = 0;
+
+    batchGenerator.prepare();
+
+    {
+      ThreadPool threadPool_(numDevices_, numDevices_);
+
+      for(auto batch : batchGenerator) {
+
+        auto task = [=](size_t id) {
+          thread_local Ptr<ExpressionGraph> graph;
+          thread_local Ptr<models::IModel> model;
+
+          if(!graph) {
+            graph = graphs_[id % numDevices_];
+            model = models_[id % numDevices_];
+          }
+
+          // Forward pass: [beam depth=1, max length, batch size, vocab size]
+          Expr logits = model->build(graph, batch).getLogits();
+          graph->forward();
+
+          std::vector<float> vLogits;
+          logits->val()->get(vLogits);
+
+          // CPU-side argmax
+          IndexType cols = logits->shape()[-1];
+          for(int b = 0; b < batch->size(); ++b) {
+            Words words;
+            for(int s = 0; s < batch->width(); ++s) {
+              size_t flatIndex = batch->front()->locate(/*batchIdx=*/b, /*wordPos=*/s);
+              if (batch->front()->data()[flatIndex] == srcEosId)
+                break;
+
+              Word bestWord = Word::NONE;
+              float bestValue = std::numeric_limits<float>::lowest();
+              for(IndexType j = 0; j < cols; ++j) {
+                float currValue = vLogits[flatIndex * cols + j];
+                if(currValue > bestValue) {
+                  bestValue = currValue;
+                  bestWord = Word::fromWordIndex(j);
+                }
+              }
+              words.push_back(bestWord);
+            }
+
+            std::string tags = trgVocab_->decode(words);
+            size_t sentId = batch->getSentenceIds()[b];
+            collector->add((long)sentId, tags, tags);
+          }
+        };
+
+        threadPool_.enqueue(task, batchId);
+        batchId++;
+      }
+    }
+
+    auto outputs = collector->collect(/*nbest=*/false);
+    return utils::join(outputs, "\n");
+  }
 };
 
 }
