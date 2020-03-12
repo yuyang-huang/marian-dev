@@ -14,7 +14,6 @@ namespace marian {
 class ClassifierBase :public LayerBase {
   using LayerBase::LayerBase;
 protected:
-  Ptr<Options> options_;
   const std::string prefix_{"classifier"};
   const bool inference_{false};
   const size_t batchIndex_{0};
@@ -29,11 +28,6 @@ public:
   virtual ~ClassifierBase() {}
 
   virtual Ptr<ClassifierState> apply(Ptr<ExpressionGraph>, Ptr<data::CorpusBatch>, const std::vector<Ptr<EncoderState>>&) = 0;
-
-  template <typename T>
-  T opt(const std::string& key) const {
-    return options_->get<T>(key);
-  }
 
   // Should be used to clear any batch-wise temporary objects if present
   virtual void clear() = 0;
