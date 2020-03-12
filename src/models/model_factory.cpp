@@ -57,6 +57,8 @@ Ptr<ClassifierBase> ClassifierFactory::construct(Ptr<ExpressionGraph> graph) {
     return New<BertMaskedLM>(graph, options_);
   else if(options_->get<std::string>("type") == "bert-classifier")
     return New<BertClassifier>(graph, options_);
+  else if(options_->get<std::string>("type") == "bert-tagger")
+    return New<BertTagger>(graph, options_);
   else
     ABORT("Unknown classifier type");
 }
@@ -84,6 +86,8 @@ Ptr<IModel> EncoderClassifierFactory::construct(Ptr<ExpressionGraph> graph) {
   if(options_->get<std::string>("type") == "bert")
     enccls = New<BertEncoderClassifier>(options_);
   else if(options_->get<std::string>("type") == "bert-classifier")
+    enccls = New<BertEncoderClassifier>(options_);
+  else if(options_->get<std::string>("type") == "bert-tagger")
     enccls = New<BertEncoderClassifier>(options_);
   else
     enccls = New<EncoderClassifier>(options_);
@@ -262,6 +266,19 @@ Ptr<IModel> createBaseModelByType(std::string type, usage use, Ptr<Options> opti
         .push_back(models::classifier()          //
                    ("type", "bert-classifier")   //
                    ("index", 1))                 // next sentence prediction
+        .construct(graph);
+  }
+
+  else if(type == "bert-tagger") {                // for BERT tagging task
+    return models::encoder_classifier()(options)  //
+        ("original-type", "bert-tagger")          // so we can query this if needed
+        ("usage", use)                            //
+        .push_back(models::encoder()              //
+                   ("type", "bert-encoder")       //
+                   ("index", 0))                  // close to original transformer encoder
+        .push_back(models::classifier()           //
+                   ("type", "bert-tagger")        //
+                   ("index", 1))                  // sequence tagging
         .construct(graph);
   }
 

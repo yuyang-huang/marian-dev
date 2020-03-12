@@ -197,6 +197,11 @@ public:
                                        opt<std::string>("bert-sep-symbol"),
                                        opt<std::string>("bert-class-symbol"),
                                        dimTypeVocab); // only annotate sentence separators
+    } else if(modelType == "bert-tagger") {
+      bertBatch = New<data::BertBatch>(batch,
+                                       opt<std::string>("bert-sep-symbol"),
+                                       opt<std::string>("bert-class-symbol"),
+                                       dimTypeVocab); // only annotate sentence separators
     } else {
       ABORT("Unknown BERT-style model: {}", modelType);
     }
@@ -365,6 +370,35 @@ public:
     auto state = New<ClassifierState>();
     state->setLogProbs(logits);
     state->setTargetWords(bertMaskedWords);
+
+    return state;
+  }
+
+  virtual void clear() override {}
+};
+
+/**
+ * BERT tagger
+ * Can be used for sequence tagging (segmentation, NER)
+ * Does not actually need a BertBatch, works with CorpusBatch.
+ */
+class BertTagger : public ClassifierBase {
+  using ClassifierBase::ClassifierBase;
+public:
+  Ptr<ClassifierState> apply(Ptr<ExpressionGraph> graph, Ptr<data::CorpusBatch> batch, const std::vector<Ptr<EncoderState>>& encoderStates) override {
+    ABORT_IF(encoderStates.size() != 1, "Currently we only support a single encoder BERT model");
+
+    auto context = encoderStates[0]->getContext();
+
+    int dimTrgCls = opt<std::vector<int>>("dim-vocabs")[batchIndex_]; // Target vocab is used as class labels
+    auto outputLayer = mlp::output() //
+        ("dim", dimTrgCls)           //
+        ("prefix", prefix_ + "_ff_logit");
+    auto output = mlp::mlp().push_back(outputLayer).construct(graph);
+
+    auto logits = output->apply(context);
+    auto state = New<ClassifierState>();
+    state->setLogProbs(logits);
 
     return state;
   }
