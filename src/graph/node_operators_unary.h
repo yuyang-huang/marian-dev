@@ -420,10 +420,8 @@ struct GeluNodeOp : public UnaryNodeOp {
 
   NodeOps forwardOps() override {
     using namespace functional;
-    // OpenAI GPT gelu(x) = 0.5 * x * (1 + erf(x / sqrt(2)))
-    // where erf(.) is approximated by tanh(sqrt(2 / pi) * (x + 0.044715 * pow(x, 3)))
-    return {NodeOp(Element(_1 = 0.5f * _2 * (1.f + tanh(0.797885f * _2 + 0.0356774f * sgn(_2) * pow(abs(_2), 3))),
-                           val_, child(0)->val()))};
+    // gelu(x) = 0.5 * x * (1 + erf(x / sqrt(2)))
+    return {NodeOp(Element(_1 = 0.5f * _2 * (1.f + erf(_2 * 0.70710678118f)), val_, child(0)->val()))};
   }
 
   NodeOps backwardOps() override {

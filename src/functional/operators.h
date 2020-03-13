@@ -32,6 +32,7 @@ struct Ops {
   static HOST_DEVICE_INLINE T max(const T&, const T&)  { ABORT("Unknown type"); }
   static HOST_DEVICE_INLINE T min(const T&, const T&)  { ABORT("Unknown type"); }
   static HOST_DEVICE_INLINE T pow(const T&, const T&)  { ABORT("Unknown type"); }
+  static HOST_DEVICE_INLINE T erf(const T&, const T&)  { ABORT("Unknown type"); }
 
   static HOST_DEVICE_INLINE T negate(const T&)  { ABORT("Unknown type"); }
   static HOST_DEVICE_INLINE T eq(const T&, const T&)   { ABORT("Unknown type"); }
@@ -76,6 +77,7 @@ struct Ops<float> {
   static HOST_DEVICE_INLINE float sqrt(const float& x) { return sqrtf(x); }
   static HOST_DEVICE_INLINE float neg(const float& x)  { return -x; }
   static HOST_DEVICE_INLINE float sgn(const float& x)  { return (float)((0 < x) - (x < 0)); }
+  static HOST_DEVICE_INLINE float erf(const float& x)  { return erff(x); }
 
   static HOST_DEVICE_INLINE float add(const float& x, const float& y)  { return x + y; }
   static HOST_DEVICE_INLINE float sub(const float& x, const float& y)  { return x - y; }
@@ -140,6 +142,7 @@ struct Ops<double> {
   static HOST_DEVICE_INLINE double sqrt(const double& x) { return std::sqrt(x); }
   static HOST_DEVICE_INLINE double neg(const double& x)  { return -x; }
   static HOST_DEVICE_INLINE double sgn(const double& x)  { return (0 < x) - (x < 0); }
+  static HOST_DEVICE_INLINE double erf(const double& x)  { return std::erf(x); }
 
   static HOST_DEVICE_INLINE double add(const double& x, const double& y)  { return x + y; }
   static HOST_DEVICE_INLINE double sub(const double& x, const double& y)  { return x - y; }
@@ -249,6 +252,7 @@ struct Ops<float32x4> {
 
   // @TODO: get rid of loop4 with proper intrisics
   static inline float32x4 sgn(const float32x4& x)  { return loop4(Ops<float>::sgn, x); }
+  static inline float32x4 erf(const float32x4& x)  { return loop4(Ops<float>::erf, x); }
 
   static inline float32x4 add(const float32x4& x, const float32x4& y) { return _mm_add_ps(x, y); }
   static inline float32x4 sub(const float32x4& x, const float32x4& y) { return _mm_sub_ps(x, y); }
@@ -374,6 +378,7 @@ struct Ops<float32x8> {
 
   // @TODO: get rid of loop8 with proper intrisics
   static inline float32x8 sgn(const float32x8& x)  { return loop8(Ops<float>::sgn, x); }
+  static inline float32x8 erf(const float32x8& x)  { return loop8(Ops<float>::erf, x); }
 
   static inline float32x8 add(const float32x8& x, const float32x8& y) { return _mm256_add_ps(x, y); }
   static inline float32x8 sub(const float32x8& x, const float32x8& y) { return _mm256_sub_ps(x, y); }
@@ -466,6 +471,22 @@ struct Ops<half> {
 
   static DEVICE_INLINE half abs(const half& x)  { return fabs((float)x); }// @TODO half has this information somewhere in the struct, right?
   static DEVICE_INLINE half sgn(const half& x)  { half zero = 0.f; return (zero < x) - (x < zero); } // @TODO half has this information somewhere in the struct, right?
+  static DEVICE_INLINE half erf(const half& x)  {
+    const half zero = 0.f;
+    const half one = 1.f;
+    const half two = 2.f;
+    const half three = 3.f;
+    const half four = 4.f;
+    const half a1 = 0.278393f;
+    const half a2 = 0.230389f;
+    const half a3 = 0.000972f;
+    const half a4 = 0.078108f;
+    if(x >= zero)
+      return one - one / pow(one + a1 * x + a2 * pow(x, two) + a3 * pow(x, three) + a4 * pow(x, four), four);
+    // erf() is an odd function: erf(x) = -erf(-x) when x < 0
+    // also, pow() does not support negative bases, so we take pow(-x, y) instead
+    return one / pow(one - a1 * x + a2 * pow(-x, two) - a3 * pow(-x, three) + a4 * pow(-x, four), four) - one;
+  }
 
   static DEVICE_INLINE half add(const half& x, const half& y)  { return x + y; }
   static DEVICE_INLINE half sub(const half& x, const half& y)  { return x - y; }
@@ -570,6 +591,7 @@ UNARY(Abs,     abs,        Ops<ElementType>::abs(x));
 UNARY(Sqrt,    sqrt,       Ops<ElementType>::sqrt(x));
 UNARY(Neg,     operator-,  Ops<ElementType>::neg(x));
 UNARY(Sgn,     sgn,        Ops<ElementType>::sgn(x));
+UNARY(Erf,     erf,        Ops<ElementType>::erf(x));
 
 BINARY(Plus,   operator+,  Ops<ElementType>::add(x, y));
 BINARY(Minus,  operator-,  Ops<ElementType>::sub(x, y));
