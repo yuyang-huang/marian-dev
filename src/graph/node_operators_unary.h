@@ -415,6 +415,25 @@ struct SwishNodeOp : public UnaryNodeOp {
   float b_;
 };
 
+struct GeluNodeOp : public UnaryNodeOp {
+  GeluNodeOp(Expr a) : UnaryNodeOp(a) {}
+
+  NodeOps forwardOps() override {
+    using namespace functional;
+    // OpenAI GPT gelu(x) = 0.5 * x * (1 + erf(x / sqrt(2)))
+    // where erf(.) is approximated by tanh(sqrt(2 / pi) * (x + 0.044715 * pow(x, 3)))
+    return {NodeOp(Element(_1 = 0.5f * _2 * (1.f + tanh(0.797885f * _2 + 0.0356774f * sgn(_2) * pow(abs(_2), 3))),
+                           val_, child(0)->val()))};
+  }
+
+  NodeOps backwardOps() override {
+    ABORT("Only used for inference");
+    return {NodeOp(0)};
+  }
+
+  const std::string type() override { return "gelu"; }
+};
+
 struct SoftmaxNodeOp : public UnaryNodeOp {
   SoftmaxNodeOp(Expr a) : UnaryNodeOp(a) {}
 

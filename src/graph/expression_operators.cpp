@@ -62,7 +62,7 @@ Expr swish(Expr a) {
 }
 
 Expr gelu(Expr a) {
-  return Expression<SwishNodeOp>(a, 1.702f);
+  return Expression<GeluNodeOp>(a);
 }
 
 Expr operator-(Expr a) {
