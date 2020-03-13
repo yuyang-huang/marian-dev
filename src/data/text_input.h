@@ -32,6 +32,7 @@ private:
   std::vector<Ptr<Vocab>> vocabs_;
 
   size_t pos_{0};
+  bool addEOS_;
 
 public:
   typedef SentenceTuple Sample;
