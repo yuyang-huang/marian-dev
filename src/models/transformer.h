@@ -175,6 +175,19 @@ public:
       // layer normalization
       else if(op == 'n')
         output = layerNorm(output, prefix);
+      // Re:Zero
+      else if(op == 'z') {
+        // shared alpha for self-attention, cross-attention & FFN
+        size_t idx, ffnIdx = prefix.find("_ffn"), selfIdx = prefix.find("_self");
+        if(ffnIdx != std::string::npos)
+          idx = ffnIdx;
+        else if(selfIdx != std::string::npos)
+          idx = selfIdx;
+        else
+          idx = prefix.find("_context");
+        std::string paramName = prefix.substr(0, idx) + "_alpha";
+        output = output * graph_->param(paramName, {1, 1}, inits::zeros());
+      }
       else
         ABORT("Unknown pre-processing operation '{}'", op);
     }
@@ -532,7 +545,7 @@ public:
     }
 
     // additional layer normalization at the top for pre-norm transformers
-    if(opsPost.back() != 'n')
+    if(opsPre.find("n") != std::string::npos && opsPost.find("n") == std::string::npos)
       layer = layerNorm(layer, prefix_ + "_top");
 
     // restore organization of batch and time steps. This is currently required
@@ -795,7 +808,7 @@ public:
     }
 
     // additional layer normalization at the top for pre-norm transformers
-    if(opsPost.back() != 'n')
+    if(opsPre.find("n") != std::string::npos && opsPost.find("n") == std::string::npos)
       query = layerNorm(query, prefix_ + "_top");
 
     auto decoderContext = transposeTimeBatch(query); // [-4: beam depth=1, -3: max length, -2: batch size, -1: vector dim]
