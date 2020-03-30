@@ -1,0 +1,32 @@
+variables:
+  IMAGE: $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG
+  DOCKER_DRIVER: overlay
+
+default:
+  services:
+    - docker:dind
+
+  before_script:
+    # login to gitlab docker registry
+    - docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $CI_REGISTRY || true
+
+stages:
+  - build
+
+
+build docker image:
+  stage: build
+  image: docker:latest
+
+  # a semantic versioning tag (e.g., v0.1.0)
+  only:
+    - /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/
+  except:
+    - branches
+
+  variables:
+    GIT_SUBMODULE_STRATEGY: recursive
+
+  script:
+    - docker build -t $IMAGE .
+    - docker push $IMAGE
