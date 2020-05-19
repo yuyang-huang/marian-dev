@@ -27,6 +27,7 @@ class Transformer : public EncoderOrDecoderBase {
 protected:
   using Base::options_; using Base::inference_; using Base::batchIndex_; using Base::graph_;
   std::unordered_map<std::string, Expr> cache_;  // caching transformation of the encoder that should not be created again
+  float initScalingFactor_{1.f};
 
   // attention weights produced by step()
   // If enabled, it is set once per batch during training, and once per step during translation.
@@ -142,6 +143,12 @@ public:
     return reshape(output, {dimBeam, dimBatch, dimSteps, dimModel});
   }
 
+  Expr dense(Expr x, std::string prefix, std::string suffix, int outDim,
+             const std::function<Expr(Expr)>& actFn = nullptr,
+             float dropProb = 0.0f) {
+    return denseInline(x, prefix, suffix, outDim, actFn, dropProb, initScalingFactor_);
+  }
+
   Expr preProcess(std::string prefix, std::string ops, Expr input, float dropProb = 0.0f) const {
     auto output = input;
     for(auto op : ops) {
@@ -169,7 +176,7 @@ public:
       // highway connection
       else if(op == 'h') {
         int dimModel = input->shape()[-1];
-        auto t = denseInline(prevInput, prefix, /*suffix=*/"h", dimModel);
+        auto t = dense(prevInput, prefix, /*suffix=*/"h", dimModel);
         output = highway(output, prevInput, t);
       }
       // layer normalization
@@ -250,7 +257,7 @@ public:
                  bool saveAttentionWeights = false) {
     int dimModel = q->shape()[-1];
     // @TODO: good opportunity to implement auto-batching here or do something manually?
-    auto Wq = graph_->param(prefix + "_Wq", {dimModel, dimModel}, inits::glorotUniform());
+    auto Wq = graph_->param(prefix + "_Wq", {dimModel, dimModel}, inits::glorotUniform(true, true, initScalingFactor_));
     auto bq = graph_->param(prefix + "_bq", {       1, dimModel}, inits::zeros());
     auto qh = affine(q, Wq, bq);
     qh = SplitHeads(qh, dimHeads); // [-4: beam depth * batch size, -3: num heads, -2: max length, -1: split vector dim]
@@ -265,7 +272,7 @@ public:
       kh = cache_[prefix + "_keys"];                                                   // then return cached tensor
     }
     else {
-      auto Wk = graph_->param(prefix + "_Wk", {dimModel, dimModel}, inits::glorotUniform());
+      auto Wk = graph_->param(prefix + "_Wk", {dimModel, dimModel}, inits::glorotUniform(true, true, initScalingFactor_));
       auto bk = graph_->param(prefix + "_bk", {1,        dimModel}, inits::zeros());
 
       kh = affine(keys, Wk, bk);     // [-4: beam depth, -3: batch size, -2: max length, -1: vector dim]
@@ -279,7 +286,7 @@ public:
         && cache_[prefix + "_values"]->shape().elements() == values->shape().elements()) {
       vh = cache_[prefix + "_values"];
     } else {
-      auto Wv = graph_->param(prefix + "_Wv", {dimModel, dimModel}, inits::glorotUniform());
+      auto Wv = graph_->param(prefix + "_Wv", {dimModel, dimModel}, inits::glorotUniform(true, true, initScalingFactor_));
       auto bv = graph_->param(prefix + "_bv", {1,        dimModel}, inits::zeros());
 
       vh = affine(values, Wv, bv); // [-4: batch size, -3: num heads, -2: max length, -1: split vector dim]
@@ -300,7 +307,7 @@ public:
     bool project = !opt<bool>("transformer-no-projection");
     if(project || dimAtt != dimOut) {
       auto Wo
-        = graph_->param(prefix + "_Wo", {dimAtt, dimOut}, inits::glorotUniform());
+        = graph_->param(prefix + "_Wo", {dimAtt, dimOut}, inits::glorotUniform(true, true, initScalingFactor_));
       auto bo = graph_->param(prefix + "_bo", {1, dimOut}, inits::zeros());
       output = affine(output, Wo, bo);
     }
@@ -368,8 +375,8 @@ public:
 
     // the stack of FF layers
     for(int i = 1; i < depthFfn; ++i)
-      output = denseInline(output, prefix, /*suffix=*/std::to_string(i), dimFfn, actFn, ffnDropProb);
-    output = denseInline(output, prefix, /*suffix=*/std::to_string(depthFfn), dimModel);
+      output = dense(output, prefix, /*suffix=*/std::to_string(i), dimFfn, actFn, ffnDropProb);
+    output = dense(output, prefix, /*suffix=*/std::to_string(depthFfn), dimModel);
 
     auto opsPost = opt<std::string>("transformer-postprocess");
     output
@@ -396,14 +403,14 @@ public:
 
     // the stack of AAN layers
     for(int i = 1; i < depthAan; ++i)
-      y = denseInline(y, prefix, /*suffix=*/std::to_string(i), dimAan, actFn, aanDropProb);
+      y = dense(y, prefix, /*suffix=*/std::to_string(i), dimAan, actFn, aanDropProb);
     if(y->shape()[-1] != dimModel) // bring it back to the desired dimension if needed
-      y = denseInline(y, prefix, std::to_string(depthAan), dimModel);
+      y = dense(y, prefix, std::to_string(depthAan), dimModel);
 
     bool noGate = opt<bool>("transformer-aan-nogate");
     if(!noGate) {
-      auto gi = denseInline(x, prefix, /*suffix=*/"i", dimModel, (ActivationFunction*)sigmoid);
-      auto gf = denseInline(y, prefix, /*suffix=*/"f", dimModel, (ActivationFunction*)sigmoid);
+      auto gi = dense(x, prefix, /*suffix=*/"i", dimModel, (ActivationFunction*)sigmoid);
+      auto gf = dense(y, prefix, /*suffix=*/"f", dimModel, (ActivationFunction*)sigmoid);
       y = gi * x + gf * y;
     }
 
@@ -519,6 +526,8 @@ public:
     auto opsPost = opt<std::string>("transformer-postprocess");
     auto encDepth = opt<int>("enc-depth");
     for(int i = 1; i <= encDepth; ++i) {
+      initScalingFactor_ = opt<bool>("transformer-depth-scaling") ? 1.f / sqrtf((float)i) : 1.f;
+
       auto input = layer;
       layer = preProcess(prefix_ + "_l" + std::to_string(i) + "_self_Wo", opsPre, layer, dropProb);
       layer = LayerAttention(prefix_ + "_l" + std::to_string(i) + "_self",
@@ -718,6 +727,8 @@ public:
     auto opsPre = opt<std::string>("transformer-preprocess");
     auto opsPost = opt<std::string>("transformer-postprocess");
     for(int i = 0; i < decDepth; ++i) {
+      initScalingFactor_ = opt<bool>("transformer-depth-scaling") ? 1.f / sqrtf((float)(i + 1)) : 1.f;
+
       std::string layerNo = std::to_string(i + 1);
       if (!tiedLayers.empty())
         layerNo = std::to_string(tiedLayers[i]);
