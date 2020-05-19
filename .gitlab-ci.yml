@@ -21,6 +21,7 @@ build docker image:
   # a semantic versioning tag (e.g., v0.1.0)
   only:
     - /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/
+    - merge_requests
   except:
     - branches
 
