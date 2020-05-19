@@ -143,9 +143,9 @@ public:
     return reshape(output, {dimBeam, dimBatch, dimSteps, dimModel});
   }
 
-  Expr dense(Expr x, std::string prefix, std::string suffix, int outDim,
-             const std::function<Expr(Expr)>& actFn = nullptr,
-             float dropProb = 0.0f) {
+  Expr denseScaledInit(Expr x, std::string prefix, std::string suffix, int outDim,
+                       const std::function<Expr(Expr)>& actFn = nullptr,
+                       float dropProb = 0.0f) const {
     return denseInline(x, prefix, suffix, outDim, actFn, dropProb, initScalingFactor_);
   }
 
@@ -176,7 +176,7 @@ public:
       // highway connection
       else if(op == 'h') {
         int dimModel = input->shape()[-1];
-        auto t = dense(prevInput, prefix, /*suffix=*/"h", dimModel);
+        auto t = denseScaledInit(prevInput, prefix, /*suffix=*/"h", dimModel);
         output = highway(output, prevInput, t);
       }
       // layer normalization
@@ -375,8 +375,8 @@ public:
 
     // the stack of FF layers
     for(int i = 1; i < depthFfn; ++i)
-      output = dense(output, prefix, /*suffix=*/std::to_string(i), dimFfn, actFn, ffnDropProb);
-    output = dense(output, prefix, /*suffix=*/std::to_string(depthFfn), dimModel);
+      output = denseScaledInit(output, prefix, /*suffix=*/std::to_string(i), dimFfn, actFn, ffnDropProb);
+    output = denseScaledInit(output, prefix, /*suffix=*/std::to_string(depthFfn), dimModel);
 
     auto opsPost = opt<std::string>("transformer-postprocess");
     output
@@ -403,14 +403,14 @@ public:
 
     // the stack of AAN layers
     for(int i = 1; i < depthAan; ++i)
-      y = dense(y, prefix, /*suffix=*/std::to_string(i), dimAan, actFn, aanDropProb);
+      y = denseScaledInit(y, prefix, /*suffix=*/std::to_string(i), dimAan, actFn, aanDropProb);
     if(y->shape()[-1] != dimModel) // bring it back to the desired dimension if needed
-      y = dense(y, prefix, std::to_string(depthAan), dimModel);
+      y = denseScaledInit(y, prefix, std::to_string(depthAan), dimModel);
 
     bool noGate = opt<bool>("transformer-aan-nogate");
     if(!noGate) {
-      auto gi = dense(x, prefix, /*suffix=*/"i", dimModel, (ActivationFunction*)sigmoid);
-      auto gf = dense(y, prefix, /*suffix=*/"f", dimModel, (ActivationFunction*)sigmoid);
+      auto gi = denseScaledInit(x, prefix, /*suffix=*/"i", dimModel, (ActivationFunction*)sigmoid);
+      auto gf = denseScaledInit(y, prefix, /*suffix=*/"f", dimModel, (ActivationFunction*)sigmoid);
       y = gi * x + gf * y;
     }
 
