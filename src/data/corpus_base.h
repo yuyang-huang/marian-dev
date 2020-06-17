@@ -112,13 +112,13 @@ class SubBatch {
 private:
   Words indices_;
   std::vector<float> mask_;
+  std::vector<size_t> lengths_;
 
   size_t size_;
   size_t width_;
   size_t words_;
 
   Ptr<const Vocab> vocab_;
-  // ... TODO: add the length information (remember it)
 
 public:
   /**
@@ -130,6 +130,7 @@ public:
   SubBatch(size_t size, size_t width, const Ptr<const Vocab>& vocab)
       : indices_(size * width, vocab ? vocab->getEosId() : Word::ZERO), // note: for gaps, we must use a valid index
         mask_(size * width, 0),
+        lengths_(size, 0),
         size_(size),
         width_(width),
         words_(0),
@@ -156,6 +157,12 @@ public:
    */
   std::vector<float>& mask() { return mask_; }
   const std::vector<float>& mask() const { return mask_; }
+
+  /**
+   * @brief The "real lengths" (excluding masked-out words) for each sentence.
+   */
+  std::vector<size_t>& lengths() { return lengths_; }
+  const std::vector<size_t>& lengths() const { return lengths_; }
 
   /**
    * @brief Accessors to the vocab_ field.
@@ -215,8 +222,10 @@ public:
           sb->data()[locate(/*batchIdx=*/b, /*wordPos=*/s, /*batchSize=*/subSize)/*s * subSize + b*/] = indices_[locate(/*batchIdx=*/pos + b, /*wordPos=*/s)]; // s * size_ + (pos + b)
           sb->mask()[locate(/*batchIdx=*/b, /*wordPos=*/s, /*batchSize=*/subSize)/*s * subSize + b*/] =    mask_[locate(/*batchIdx=*/pos + b, /*wordPos=*/s)]; // s * size_ + (pos + b)
 
-          if(mask_[locate(/*batchIdx=*/pos + b, /*wordPos=*/s)/*s * size_ + (pos + b)*/] != 0)
+          if(mask_[locate(/*batchIdx=*/pos + b, /*wordPos=*/s)/*s * size_ + (pos + b)*/] != 0) {
+            sb->lengths()[b]++;
             words++;
+          }
         }
       }
       sb->setWords(words);
@@ -284,6 +293,16 @@ public:
   }
 
   /**
+   * @brief The "real lengths" (excluding masked-out words) for each sentence.
+   * Pass which=0 for source sentences and -1 for target sentences.
+   */
+  const std::vector<size_t>& lengths(int which = 0) const override {
+    return subBatches_[which >= 0 ? which
+                                  : which + (ptrdiff_t)subBatches_.size()]
+        ->lengths();
+  }
+
+  /**
    * @brief The width of the source mini-batch. Num words + padded?
    */
   size_t width() const override { return subBatches_[0]->batchWidth(); }
@@ -328,6 +347,8 @@ public:
     size_t batchIndex = 0;
     for(auto len : lengths) {
       auto sb = New<SubBatch>(batchSize, len, vocabs[batchIndex]);
+      for(size_t b = 0; b < batchSize; b++)
+        sb->lengths()[b] = len;
       // set word indices to random values (not actually needed with current version  --@marcinjd: please confirm)
       std::transform(sb->data().begin(), sb->data().end(), sb->data().begin(),
                      [&](Word) -> Word { return vocabs[batchIndex]->randWord(); });
@@ -488,6 +509,13 @@ public:
     size_t subBatchIndex = 0;
     for(auto sb : subBatches_) {
       std::cerr << "stream " << subBatchIndex++ << ": " << std::endl;
+
+      const auto& lengths = sb->lengths();
+      std::cerr << "\t L: ";
+      for(size_t b = 0; b < sb->batchSize(); b++)
+        std::cerr << lengths[b] << " ";
+      std::cerr << std::endl;
+
       const auto& vocab = sb->vocab();
       for(size_t s = 0; s < sb->batchWidth(); s++) {
         std::cerr << "\t w: ";

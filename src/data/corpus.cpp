@@ -256,6 +256,7 @@ CorpusBase::batch_ptr Corpus::toBatch(const std::vector<Sample>& batchVector) {
       for(size_t s = 0; s < batchVector[b][j].size(); ++s) { // loop over word positions
         subBatch->data()[subBatch->locate(/*batchIdx=*/b, /*wordPos=*/s)/*s * batchSize + b*/] = batchVector[b][j][s];
         subBatch->mask()[subBatch->locate(/*batchIdx=*/b, /*wordPos=*/s)/*s * batchSize + b*/] = 1.f;
+        subBatch->lengths()[b]++;
         words[j]++;
       }
     }

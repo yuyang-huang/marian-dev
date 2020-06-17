@@ -76,6 +76,7 @@ public:
         for(size_t k = 0; k < batchVector[i][j].size(); ++k) {
           subBatches[j]->data()[k * batchSize + i] = batchVector[i][j][k];
           subBatches[j]->mask()[k * batchSize + i] = 1.f;
+          subBatches[j]->lengths()[i]++;
           words[j]++;
         }
       }
