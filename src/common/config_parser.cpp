@@ -273,6 +273,11 @@ void ConfigParser::addOptionsModel(cli::CLIWrapper& cli) {
       "dan");
   cli.add<bool>("--transformer-train-position-embeddings",
       "Train positional embeddings instead of using static sinusoidal embeddings");
+  cli.add<bool>("--transformer-length-ratio-embeddings",
+      "Add sinusoidal embeddings to indicate the desired length");
+  cli.add<float>("--transformer-length-scale-factor",
+      "Scaling factor for estimating the target length. Will use source_length * scale as the expected target length.",
+      1.f);
   cli.add<bool>("--transformer-depth-scaling",
       "Scale down weight initialization in transformer layers by 1 / sqrt(depth)");
 

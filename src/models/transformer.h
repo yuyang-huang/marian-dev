@@ -661,7 +661,7 @@ public:
     // Used for position embeddings and creating new decoder states.
     int startPos = (int)state->getPosition();
 
-    auto scaledEmbeddings = addSpecialEmbeddings(embeddings, startPos);
+    auto scaledEmbeddings = addSpecialEmbeddings(embeddings, startPos, state->getBatch());
     scaledEmbeddings = atleast_nd(scaledEmbeddings, 4);
 
     // reorganize batch and timestep
@@ -829,6 +829,24 @@ public:
     }
     nextState->setPosition(state->getPosition() + 1);
     return nextState;
+  }
+
+  Expr addLengthRatioEmbeddings(Expr input, const std::vector<size_t>& lengths, int start = 0) const {
+    int dimEmb   = input->shape()[-1];
+    int dimBatch = input->shape()[-2];
+    int dimWords = input->shape()[-3];
+
+    float scaleFactor = opt<float>("transformer-length-scale-factor", 1.f);
+    auto init = inits::sinusoidalLengthRatioEmbeddings(start, lengths, scaleFactor);
+    auto signal = graph_->constant({dimWords, dimBatch, dimEmb}, init);
+    return input + signal;
+  }
+
+  virtual Expr addSpecialEmbeddings(Expr input, int start = 0, Ptr<data::CorpusBatch> batch = nullptr) const override {
+    Expr embeddings = Base::addSpecialEmbeddings(input, start, batch);
+    if(opt<bool>("transformer-length-ratio-embeddings", false))
+      embeddings = addLengthRatioEmbeddings(embeddings, batch->lengths(0), start);
+    return embeddings;
   }
 
   // helper function for guided alignment

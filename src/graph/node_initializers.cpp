@@ -27,7 +27,7 @@ class LambdaInitConvert : public NodeInitializer {
   private:
     std::function<void(Tensor)> lambda_;
     Type intermediateType_; // is used for the creation of a temporary intermedia tensor on which the lambda actually operates.
-                            // This tensor is then automatically cast and copied to the type of the actual tensor. 
+                            // This tensor is then automatically cast and copied to the type of the actual tensor.
 
   public:
     LambdaInitConvert(std::function<void(Tensor)>&& lambda,
@@ -226,6 +226,32 @@ Ptr<NodeInitializer> sinusoidalPositionEmbeddings(int start) {
         float v = p * std::exp(i * -logTimescaleIncrement);
         vPos[(p - start) * dimEmb + i                     ] = std::sin(v);
         vPos[(p - start) * dimEmb + (int)numTimescales + i] = std::cos(v); // @TODO: is int vs. float correct for num_timescales?
+      }
+    }
+
+    t->set(vPos);
+  }, Type::float32);
+}
+
+// Computes LRPE from the paper "Positional Encoding to Control Output Sequence Length"
+Ptr<NodeInitializer> sinusoidalLengthRatioEmbeddings(int start, const std::vector<size_t>& lengths, float scaleFactor) {
+  return fromLambda([start, lengths, scaleFactor](Tensor t) {
+    int dimEmb   = t->shape()[-1];
+    int dimBatch = t->shape()[-2];
+    int dimWords = t->shape()[-3];
+
+    float numTimescales = (float)dimEmb / 2;
+
+    std::vector<float> vPos(dimEmb * dimBatch * dimWords, 0);
+    for(int p = start; p < dimWords + start; ++p) {
+      for(int b = 0; b < dimBatch; ++b) {
+        float expectedLength = (float)lengths[b] * scaleFactor;
+        float logTimescaleIncrement = std::log(expectedLength) / (numTimescales - 1.f);
+        for(int i = 0; i < numTimescales; ++i) {
+          float v = p * std::exp(i * -logTimescaleIncrement);
+          vPos[(p - start) * dimEmb * dimBatch + b * dimEmb + i                     ] = std::sin(v);
+          vPos[(p - start) * dimEmb * dimBatch + b * dimEmb + (int)numTimescales + i] = std::cos(v);
+        }
       }
     }
 

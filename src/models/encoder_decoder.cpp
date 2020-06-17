@@ -51,6 +51,8 @@ EncoderDecoder::EncoderDecoder(Ptr<ExpressionGraph> graph, Ptr<Options> options)
   modelFeatures_.insert("transformer-tied-layers");
   modelFeatures_.insert("transformer-guided-alignment-layer");
   modelFeatures_.insert("transformer-train-position-embeddings");
+  modelFeatures_.insert("transformer-length-ratio-embeddings");
+  modelFeatures_.insert("transformer-length-scale-factor");
 
   modelFeatures_.insert("bert-train-type-embeddings");
   modelFeatures_.insert("bert-type-vocab-size");
@@ -198,7 +200,7 @@ Ptr<DecoderState> EncoderDecoder::step(Ptr<ExpressionGraph> graph,
   // Fill state with embeddings based on last prediction
   decoders_[0]->embeddingsFromPrediction(graph, state, words, (int) batchIndices.size(), beamSize);
   auto nextState = decoders_[0]->step(graph, state);
-  
+
   return nextState;
 }
 
