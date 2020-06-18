@@ -274,7 +274,9 @@ void ConfigParser::addOptionsModel(cli::CLIWrapper& cli) {
   cli.add<bool>("--transformer-train-position-embeddings",
       "Train positional embeddings instead of using static sinusoidal embeddings");
   cli.add<bool>("--transformer-length-ratio-embeddings",
-      "Add sinusoidal embeddings to indicate the desired length");
+      "Add sinusoidal embeddings (as a function of length ratio) to indicate the desired length");
+  cli.add<bool>("--transformer-length-difference-embeddings",
+      "Add sinusoidal embeddings (as a function of length difference) to indicate the desired length");
   cli.add<float>("--transformer-length-scale-factor",
       "Scaling factor for estimating the target length. Will use source_length * scale as the expected target length.",
       1.f);

@@ -259,6 +259,32 @@ Ptr<NodeInitializer> sinusoidalLengthRatioEmbeddings(int start, const std::vecto
   }, Type::float32);
 }
 
+// Computes LDPE from the paper "Positional Encoding to Control Output Sequence Length"
+Ptr<NodeInitializer> sinusoidalLengthDifferenceEmbeddings(int start, const std::vector<size_t>& lengths, float scaleFactor) {
+  return fromLambda([start, lengths, scaleFactor](Tensor t) {
+    int dimEmb   = t->shape()[-1];
+    int dimBatch = t->shape()[-2];
+    int dimWords = t->shape()[-3];
+
+    float numTimescales = (float)dimEmb / 2;
+    float logTimescaleIncrement = std::log(10000.f) / (numTimescales - 1.f);
+
+    std::vector<float> vPos(dimEmb * dimBatch * dimWords, 0);
+    for(int p = start; p < dimWords + start; ++p) {
+      for(int b = 0; b < dimBatch; ++b) {
+        float expectedLength = (float)lengths[b] * scaleFactor;
+        for(int i = 0; i < numTimescales; ++i) {
+          float v = (expectedLength - p) * std::exp(i * -logTimescaleIncrement);
+          vPos[(p - start) * dimEmb * dimBatch + b * dimEmb + i                     ] = std::sin(v);
+          vPos[(p - start) * dimEmb * dimBatch + b * dimEmb + (int)numTimescales + i] = std::cos(v);
+        }
+      }
+    }
+
+    t->set(vPos);
+  }, Type::float32);
+}
+
 }  // namespace inits
 
 }  // namespace marian

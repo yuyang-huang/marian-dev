@@ -175,7 +175,9 @@ Ptr<NodeInitializer> fromWord2vec(const std::string& file,
  * over time steps.
  */
 Ptr<NodeInitializer> sinusoidalPositionEmbeddings(int start);
+
 Ptr<NodeInitializer> sinusoidalLengthRatioEmbeddings(int start, const std::vector<size_t>& lengths, float scaleFactor = 1.f);
+Ptr<NodeInitializer> sinusoidalLengthDifferenceEmbeddings(int start, const std::vector<size_t>& lengths, float scaleFactor = 1.f);
 
 }  // namespace inits
 

@@ -52,6 +52,7 @@ EncoderDecoder::EncoderDecoder(Ptr<ExpressionGraph> graph, Ptr<Options> options)
   modelFeatures_.insert("transformer-guided-alignment-layer");
   modelFeatures_.insert("transformer-train-position-embeddings");
   modelFeatures_.insert("transformer-length-ratio-embeddings");
+  modelFeatures_.insert("transformer-length-difference-embeddings");
   modelFeatures_.insert("transformer-length-scale-factor");
 
   modelFeatures_.insert("bert-train-type-embeddings");

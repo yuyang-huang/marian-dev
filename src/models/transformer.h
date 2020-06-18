@@ -842,10 +842,23 @@ public:
     return input + signal;
   }
 
+  Expr addLengthDifferenceEmbeddings(Expr input, const std::vector<size_t>& lengths, int start = 0) const {
+    int dimEmb   = input->shape()[-1];
+    int dimBatch = input->shape()[-2];
+    int dimWords = input->shape()[-3];
+
+    float scaleFactor = opt<float>("transformer-length-scale-factor", 1.f);
+    auto init = inits::sinusoidalLengthDifferenceEmbeddings(start, lengths, scaleFactor);
+    auto signal = graph_->constant({dimWords, dimBatch, dimEmb}, init);
+    return input + signal;
+  }
+
   virtual Expr addSpecialEmbeddings(Expr input, int start = 0, Ptr<data::CorpusBatch> batch = nullptr) const override {
     Expr embeddings = Base::addSpecialEmbeddings(input, start, batch);
     if(opt<bool>("transformer-length-ratio-embeddings", false))
       embeddings = addLengthRatioEmbeddings(embeddings, batch->lengths(0), start);
+    if(opt<bool>("transformer-length-difference-embeddings", false))
+      embeddings = addLengthDifferenceEmbeddings(embeddings, batch->lengths(0), start);
     return embeddings;
   }
 
